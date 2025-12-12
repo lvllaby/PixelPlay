@@ -34,7 +34,8 @@ data class SettingsUiState(
     val allowedDirectories: Set<String> = emptySet(),
     val availableModels: List<GeminiModel> = emptyList(),
     val isLoadingModels: Boolean = false,
-    val modelsFetchError: String? = null
+    val modelsFetchError: String? = null,
+    val appRebrandDialogShown: Boolean = false
 )
 
 @HiltViewModel
@@ -61,9 +62,18 @@ class SettingsViewModel @Inject constructor(
     val currentPath = fileExplorerStateHolder.currentPath
     val currentDirectoryChildren = fileExplorerStateHolder.currentDirectoryChildren
     val allowedDirectories = fileExplorerStateHolder.allowedDirectories
+    val smartViewEnabled = fileExplorerStateHolder.smartViewEnabled
     val isLoadingDirectories = fileExplorerStateHolder.isLoading
+    val isExplorerPriming = fileExplorerStateHolder.isPrimingExplorer
+    val isExplorerReady = fileExplorerStateHolder.isExplorerReady
 
     init {
+        viewModelScope.launch {
+            userPreferencesRepository.appRebrandDialogShownFlow.collect { wasShown ->
+                _uiState.update { it.copy(appRebrandDialogShown = wasShown) }
+            }
+        }
+
         viewModelScope.launch {
             userPreferencesRepository.appThemeModeFlow.collect { appThemeMode ->
                 _uiState.update { it.copy(appThemeMode = appThemeMode) }
@@ -143,12 +153,23 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun setAppRebrandDialogShown(wasShown: Boolean) {
+        viewModelScope.launch {
+            userPreferencesRepository.setAppRebrandDialogShown(wasShown)
+        }
+    }
+
     fun toggleDirectoryAllowed(file: File) {
         fileExplorerStateHolder.toggleDirectoryAllowed(file)
+        syncManager.sync()
     }
 
     fun loadDirectory(file: File) {
         fileExplorerStateHolder.loadDirectory(file)
+    }
+
+    fun primeExplorer() {
+        fileExplorerStateHolder.primeExplorerRoot()
     }
 
     fun navigateUp() {
@@ -157,6 +178,10 @@ class SettingsViewModel @Inject constructor(
 
     fun refreshExplorer() {
         fileExplorerStateHolder.refreshCurrentDirectory()
+    }
+
+    fun setSmartViewEnabled(enabled: Boolean) {
+        fileExplorerStateHolder.setSmartViewEnabled(enabled)
     }
 
     fun isAtRoot(): Boolean = fileExplorerStateHolder.isAtRoot()

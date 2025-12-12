@@ -85,10 +85,10 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
 import com.theveloper.pixelplay.R
-import com.theveloper.pixelplay.presentation.components.FileExplorerBottomSheet
 import com.theveloper.pixelplay.presentation.components.PermissionIconCollage
 import com.theveloper.pixelplay.presentation.components.subcomps.MaterialYouVectorDrawable
 import com.theveloper.pixelplay.presentation.components.subcomps.SineWaveLine
+import com.theveloper.pixelplay.presentation.components.FileExplorerDialog
 import com.theveloper.pixelplay.presentation.viewmodel.DirectoryEntry
 import com.theveloper.pixelplay.presentation.viewmodel.SetupUiState
 import com.theveloper.pixelplay.presentation.viewmodel.SetupViewModel
@@ -110,7 +110,7 @@ fun SetupScreen(
     val uiState by setupViewModel.uiState.collectAsState()
     val currentPath by setupViewModel.currentPath.collectAsState()
     val directoryChildren by setupViewModel.currentDirectoryChildren.collectAsState()
-    val allowedDirectories by setupViewModel.allowedDirectories.collectAsState()
+    val smartViewEnabled by setupViewModel.smartViewEnabled.collectAsState()
 
     // Re-check permissions when the screen is resumed
     DisposableEffect(lifecycleOwner) {
@@ -131,15 +131,15 @@ fun SetupScreen(
         )
         // Add media permissions page for all versions
         list.add(SetupPage.MediaPermission)
-        // Add directory selection page
+        // Add all files access page for Android 11+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            list.add(SetupPage.AllFilesPermission)
+        }
+        // Add directory selection page after storage permissions
         list.add(SetupPage.DirectorySelection)
         // Add notifications permission page for Android 13+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             list.add(SetupPage.NotificationsPermission)
-        }
-        // Add all files access page for Android 11+
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            list.add(SetupPage.AllFilesPermission)
         }
         list.add(SetupPage.Finish)
         list
@@ -211,7 +211,7 @@ fun SetupScreen(
                         uiState = uiState,
                         currentPath = currentPath,
                         directoryChildren = directoryChildren,
-                        allowedDirectories = allowedDirectories,
+                        smartViewEnabled = smartViewEnabled,
                         isAtRoot = setupViewModel.isAtRoot(),
                         explorerRoot = setupViewModel.explorerRoot(),
                         onNavigateTo = setupViewModel::loadDirectory,
@@ -222,7 +222,8 @@ fun SetupScreen(
                                 pagerState.animateScrollToPage(pagerState.currentPage + 1)
                             }
                         },
-                        onToggleAllowed = setupViewModel::toggleDirectoryAllowed
+                        onToggleAllowed = setupViewModel::toggleDirectoryAllowed,
+                        onSmartViewToggle = setupViewModel::setSmartViewEnabled
                     )
                     SetupPage.NotificationsPermission -> NotificationsPermissionPage(uiState)
                     SetupPage.AllFilesPermission -> AllFilesPermissionPage(uiState)
@@ -239,7 +240,7 @@ fun DirectorySelectionPage(
     uiState: SetupUiState,
     currentPath: File,
     directoryChildren: List<DirectoryEntry>,
-    allowedDirectories: Set<String>,
+    smartViewEnabled: Boolean,
     isAtRoot: Boolean,
     explorerRoot: File,
     onNavigateTo: (File) -> Unit,
@@ -247,17 +248,10 @@ fun DirectorySelectionPage(
     onRefresh: () -> Unit,
     onSkip: () -> Unit,
     onToggleAllowed: (File) -> Unit,
+    onSmartViewToggle: (Boolean) -> Unit
 ) {
     var showDirectoryPicker by remember { mutableStateOf(false) }
     val context = LocalContext.current
-
-    BackHandler(enabled = showDirectoryPicker) {
-        if (isAtRoot) {
-            showDirectoryPicker = false
-        } else {
-            onNavigateUp()
-        }
-    }
 
     val hasMediaPermission = uiState.mediaPermissionGranted
     val hasAllFilesAccess = Build.VERSION.SDK_INT < Build.VERSION_CODES.R || uiState.allFilesAccessGranted
@@ -288,26 +282,29 @@ fun DirectorySelectionPage(
         }
     }
 
-    if (showDirectoryPicker) {
-        LaunchedEffect(Unit) {
+    LaunchedEffect(showDirectoryPicker) {
+        if (showDirectoryPicker) {
             onNavigateTo(explorerRoot)
         }
-        FileExplorerBottomSheet(
-            currentPath = currentPath,
-            directoryChildren = directoryChildren,
-            allowedDirectories = allowedDirectories,
-            isLoading = uiState.isLoadingDirectories,
-            isAtRoot = isAtRoot,
-            rootDirectory = explorerRoot,
-            onNavigateTo = onNavigateTo,
-            onNavigateUp = onNavigateUp,
-            onNavigateHome = { onNavigateTo(explorerRoot) },
-            onToggleAllowed = onToggleAllowed,
-            onRefresh = onRefresh,
-            onDone = { showDirectoryPicker = false },
-            onDismiss = { showDirectoryPicker = false }
-        )
     }
+
+    FileExplorerDialog(
+        visible = showDirectoryPicker,
+        currentPath = currentPath,
+        directoryChildren = directoryChildren,
+        smartViewEnabled = smartViewEnabled,
+        isLoading = uiState.isLoadingDirectories,
+        isAtRoot = isAtRoot,
+        rootDirectory = explorerRoot,
+        onNavigateTo = onNavigateTo,
+        onNavigateUp = onNavigateUp,
+        onNavigateHome = { onNavigateTo(explorerRoot) },
+        onToggleAllowed = onToggleAllowed,
+        onRefresh = onRefresh,
+        onSmartViewToggle = onSmartViewToggle,
+        onDone = { showDirectoryPicker = false },
+        onDismiss = { showDirectoryPicker = false }
+    )
 }
 
 sealed class SetupPage {
@@ -332,7 +329,7 @@ fun WelcomePage() {
             modifier = Modifier
                 .padding(horizontal = 8.dp)
                 .padding(top = 12.dp),
-            text = "Welcome to PixelPlay",
+            text = "Welcome to PixelPlayer",
             style = ExpTitleTypography.displayLarge.copy(
                 fontSize = 42.sp,
                 lineHeight = 1.1.em
@@ -421,7 +418,7 @@ fun MediaPermissionPage(uiState: SetupUiState) {
     PermissionPageLayout(
         title = "Media Permission",
         granted = isGranted,
-        description = "PixelPlay needs access to your audio files to build your music library.",
+        description = "PixelPlayer needs access to your audio files to build your music library.",
         buttonText = if (isGranted) "Permission Granted" else "Grant Media Permission",
         icons = mediaIcons,
         onGrantClicked = {
@@ -479,7 +476,7 @@ fun AllFilesPermissionPage(uiState: SetupUiState) {
     PermissionPageLayout(
         title = "All Files Access",
         granted = isGranted,
-        description = "For some Android versions, PixelPlay needs broader file access to find all your music.",
+        description = "For some Android versions, PixelPlayer needs broader file access to find all your music.",
         buttonText = if(isGranted) "Permission Granted" else "Go to Settings",
         icons = fileIcons,
         onGrantClicked = {

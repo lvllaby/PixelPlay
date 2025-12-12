@@ -51,10 +51,12 @@ class UserPreferencesRepository @Inject constructor(
 ) {
 
     private object PreferencesKeys {
+        val APP_REBRAND_DIALOG_SHOWN = booleanPreferencesKey("app_rebrand_dialog_shown")
         val GEMINI_API_KEY = stringPreferencesKey("gemini_api_key")
         val GEMINI_MODEL = stringPreferencesKey("gemini_model")
         val GEMINI_SYSTEM_PROMPT = stringPreferencesKey("gemini_system_prompt")
         val ALLOWED_DIRECTORIES = stringSetPreferencesKey("allowed_directories")
+        val BLOCKED_DIRECTORIES = stringSetPreferencesKey("blocked_directories")
         val INITIAL_SETUP_DONE = booleanPreferencesKey("initial_setup_done")
         // val GLOBAL_THEME_PREFERENCE = stringPreferencesKey("global_theme_preference_v2") // Removed
         val PLAYER_THEME_PREFERENCE = stringPreferencesKey("player_theme_preference_v2")
@@ -89,6 +91,17 @@ class UserPreferencesRepository @Inject constructor(
         val IS_CROSSFADE_ENABLED = booleanPreferencesKey("is_crossfade_enabled")
         val CROSSFADE_DURATION = intPreferencesKey("crossfade_duration")
         val DISABLE_CAST_AUTOPLAY = booleanPreferencesKey("disable_cast_autoplay")
+    }
+
+    val appRebrandDialogShownFlow: Flow<Boolean> = dataStore.data
+        .map { preferences ->
+            preferences[PreferencesKeys.APP_REBRAND_DIALOG_SHOWN] ?: false
+        }
+
+    suspend fun setAppRebrandDialogShown(wasShown: Boolean) {
+        dataStore.edit { preferences ->
+            preferences[PreferencesKeys.APP_REBRAND_DIALOG_SHOWN] = wasShown
+        }
     }
 
     val isCrossfadeEnabledFlow: Flow<Boolean> = dataStore.data
@@ -164,6 +177,11 @@ class UserPreferencesRepository @Inject constructor(
     val allowedDirectoriesFlow: Flow<Set<String>> = dataStore.data
         .map { preferences ->
             preferences[PreferencesKeys.ALLOWED_DIRECTORIES] ?: emptySet()
+        }
+
+    val blockedDirectoriesFlow: Flow<Set<String>> = dataStore.data
+        .map { preferences ->
+            preferences[PreferencesKeys.BLOCKED_DIRECTORIES] ?: emptySet()
         }
 
     val initialSetupDoneFlow: Flow<Boolean> = dataStore.data
@@ -342,6 +360,16 @@ class UserPreferencesRepository @Inject constructor(
     suspend fun updateAllowedDirectories(allowedPaths: Set<String>) {
         dataStore.edit { preferences ->
             preferences[PreferencesKeys.ALLOWED_DIRECTORIES] = allowedPaths
+        }
+    }
+
+    suspend fun updateDirectorySelections(
+        allowedPaths: Set<String>,
+        blockedPaths: Set<String>
+    ) {
+        dataStore.edit { preferences ->
+            preferences[PreferencesKeys.ALLOWED_DIRECTORIES] = allowedPaths
+            preferences[PreferencesKeys.BLOCKED_DIRECTORIES] = blockedPaths
         }
     }
 
@@ -708,4 +736,3 @@ class UserPreferencesRepository @Inject constructor(
         }
     }
 }
-
