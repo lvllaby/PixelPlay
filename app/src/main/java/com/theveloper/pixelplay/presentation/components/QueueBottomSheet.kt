@@ -36,7 +36,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListItemInfo
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -82,8 +81,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.ColorScheme
-import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.MediumExtendedFloatingActionButton
+import androidx.compose.material3.MediumFloatingActionButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material.icons.filled.Add
@@ -264,17 +263,17 @@ fun QueueBottomSheet(
     var reorderHandleInUse by remember { mutableStateOf(false) }
     val updatedReorderHandleInUse by rememberUpdatedState(reorderHandleInUse)
 
-    fun mapLazyListIndexToLocal(indexInfo: LazyListItemInfo?): Int? {
-        val key = indexInfo?.key ?: return null
-        val resolvedIndex = items.indexOfFirst { it.id == key }
-        return resolvedIndex.takeIf { it != -1 }
+    fun mapKeyToLocalIndex(key: Any?): Int? {
+        val songId = key as? String ?: return null
+        val localIndex = items.indexOfFirst { it.id == songId }
+        return localIndex.takeIf { it != -1 }
     }
 
     val reorderableState = rememberReorderableLazyListState(
         lazyListState = listState,
         onMove = { from, to ->
-            val fromLocalIndex = mapLazyListIndexToLocal(from) ?: return@rememberReorderableLazyListState
-            val toLocalIndex = mapLazyListIndexToLocal(to) ?: return@rememberReorderableLazyListState
+            val fromLocalIndex = mapKeyToLocalIndex(from.key) ?: return@rememberReorderableLazyListState
+            val toLocalIndex = mapKeyToLocalIndex(to.key) ?: return@rememberReorderableLazyListState
             val movingSongId = items.getOrNull(fromLocalIndex)?.id
             items = items.toMutableList().apply {
                 add(toLocalIndex, removeAt(fromLocalIndex))
@@ -462,6 +461,7 @@ fun QueueBottomSheet(
                     QueueMiniPlayer(
                         song = nowPlaying,
                         isPlaying = isPlaying,
+                        headerPadding = headerTopPadding,
                         onPlayPause = { viewModel.playPause() },
                         onNext = { viewModel.nextSong() },
                         colorScheme = albumColorScheme,
@@ -482,8 +482,8 @@ fun QueueBottomSheet(
                         },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 12.dp)
-                            .padding(top = headerTopPadding, bottom = 12.dp)
+//                            .padding(horizontal = 12.dp)
+                            .padding(bottom = 0.dp)
                             .then(directSheetDragModifier)
                     )
                 }
@@ -748,7 +748,7 @@ fun QueueBottomSheet(
 
                     Spacer(modifier = Modifier.width(4.dp))
 
-                    FloatingActionButton(
+                    MediumFloatingActionButton(
                         modifier = Modifier
                             .fillMaxHeight()
                             .aspectRatio(1f),
@@ -1348,7 +1348,7 @@ fun SaveQueueAsPlaylistSheet(
                                 Column {
                                     Text(song.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     Text(
-                                        song.artist,
+                                        song.displayArtist,
                                         style = MaterialTheme.typography.bodySmall,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
@@ -1370,6 +1370,7 @@ private fun QueueMiniPlayer(
     onNext: () -> Unit,
     colorScheme: ColorScheme? = null,
     onTap: (() -> Unit)? = null,
+    headerPadding: Dp = 0.dp,
     modifier: Modifier = Modifier,
 ) {
     val colors = colorScheme ?: MaterialTheme.colorScheme
@@ -1399,10 +1400,19 @@ private fun QueueMiniPlayer(
     )
 
     Surface(
-        modifier = modifier,
+        modifier = modifier
+            .background(
+                brush = Brush.verticalGradient(
+                    listOf(
+                        colors.primaryContainer,
+                        //colors.primaryContainer,
+                        Color.Transparent
+                    )
+                )
+            ),
         shape = shape,
         tonalElevation = 10.dp,
-        color = colors.primaryContainer,
+        color = Color.Transparent
     ) {
         Row(
             modifier = Modifier
@@ -1415,8 +1425,8 @@ private fun QueueMiniPlayer(
                 ) {
                     onTap?.invoke()
                 }
-                .padding(horizontal = 12.dp, vertical = 12.dp)
-                .padding(end = 4.dp),
+                .padding(horizontal = 12.dp)
+                .padding(top = headerPadding, bottom = 26.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -1443,7 +1453,7 @@ private fun QueueMiniPlayer(
                     gradientEdgeColor = colors.primaryContainer
                 )
                 AutoScrollingText(
-                    text = song.artist,
+                    text = song.displayArtist,
                     style = MaterialTheme.typography.bodyMedium.copy(
                         color = colors.onPrimaryContainer.copy(alpha = 0.7f)
                     ),
@@ -1731,7 +1741,7 @@ fun QueuePlaylistSongItem(
                             style = MaterialTheme.typography.bodyLarge
                         )
                         Text(
-                            song.artist, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            song.displayArtist, maxLines = 1, overflow = TextOverflow.Ellipsis,
                             style = MaterialTheme.typography.bodyMedium,
                             color = if (isCurrentSong) colors.primary.copy(alpha = 0.8f) else colors.onSurfaceVariant
                         )

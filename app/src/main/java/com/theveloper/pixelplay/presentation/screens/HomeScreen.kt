@@ -1,6 +1,7 @@
 package com.theveloper.pixelplay.presentation.screens
 
 import android.widget.Toast
+import androidx.activity.compose.ReportDrawnWhen
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -24,14 +25,16 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LargeFloatingActionButton
+import androidx.compose.material3.LargeExtendedFloatingActionButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -61,7 +64,9 @@ import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.data.model.Song
 import com.theveloper.pixelplay.presentation.components.AlbumArtCollage
 import com.theveloper.pixelplay.presentation.components.AppRebrandDialog
+import com.theveloper.pixelplay.presentation.components.AppSidebarDrawer
 import com.theveloper.pixelplay.presentation.components.DailyMixSection
+import com.theveloper.pixelplay.presentation.components.DrawerDestination
 import com.theveloper.pixelplay.presentation.components.HomeGradientTopBar
 import com.theveloper.pixelplay.presentation.components.HomeOptionsBottomSheet
 import com.theveloper.pixelplay.presentation.components.MiniPlayerHeight
@@ -87,8 +92,14 @@ fun HomeScreen(
     navController: NavController,
     paddingValuesParent: PaddingValues,
     playerViewModel: PlayerViewModel = hiltViewModel(),
-    settingsViewModel: SettingsViewModel = hiltViewModel()
+    settingsViewModel: SettingsViewModel = hiltViewModel(),
+    onOpenSidebar: () -> Unit
 ) {
+    val context = LocalContext.current
+    // DETECTAR MODO BENCHMARK
+    val isBenchmarkMode = remember {
+        (context as? android.app.Activity)?.intent?.getBooleanExtra("is_benchmark", false) ?: false
+    }
     val statsViewModel: StatsViewModel = hiltViewModel()
     val settingsUiState by settingsViewModel.uiState.collectAsState()
     // 1) Observar sólo la lista de canciones, que cambia con poca frecuencia
@@ -102,6 +113,10 @@ fun HomeScreen(
             dailyMixSongs.isNotEmpty() -> dailyMixSongs
             else -> allSongs.toImmutableList()
         }
+    }
+
+    ReportDrawnWhen {
+        yourMixSongs.isNotEmpty() || isBenchmarkMode
     }
 
     val yourMixSong: String = "Today's Mix for you"
@@ -124,11 +139,14 @@ fun HomeScreen(
     val sheetState = rememberModalBottomSheetState()
     val betaSheetState = rememberModalBottomSheetState()
     val scope = rememberCoroutineScope()
-    val context = LocalContext.current
+    LocalContext.current
 
     val weeklyStats by statsViewModel.weeklyOverview.collectAsState()
 
-    if (!settingsUiState.appRebrandDialogShown) {
+    // Drawer state for sidebar
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+
+    if (!settingsUiState.appRebrandDialogShown && !isBenchmarkMode) {
         AppRebrandDialog(
             onDismiss = { settingsViewModel.setAppRebrandDialogShown(true) },
             onDoNotShowAgain = { settingsViewModel.setAppRebrandDialogShown(it) }
@@ -150,6 +168,9 @@ fun HomeScreen(
                     },
                     onBetaClick = {
                         showBetaInfoBottomSheet = true
+                    },
+                    onMenuClick = {
+                        // onOpenSidebar() // Disabled
                     }
                 )
             }
@@ -173,11 +194,10 @@ fun HomeScreen(
                         isShuffleEnabled = isShuffleEnabled,
                         onPlayShuffled = {
                             if (yourMixSongs.isNotEmpty()) {
-                                // Start playing with shuffle enabled
-                                val shuffledSongs = yourMixSongs.shuffled()
-                                playerViewModel.playSongs(shuffledSongs, shuffledSongs.first(), "Your Mix")
-                                // Enable shuffle mode after starting playback
-                                playerViewModel.toggleShuffle()
+                                playerViewModel.playSongsShuffled(
+                                    songsToPlay = yourMixSongs,
+                                    queueName = "Your Mix"
+                                )
                             }
                         }
                     )
@@ -313,7 +333,7 @@ fun YourMixHeader(
             )
         }
         // Play Button - color changes based on shuffle state
-        LargeFloatingActionButton(
+        LargeExtendedFloatingActionButton(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(end = 12.dp),
@@ -437,7 +457,7 @@ fun SongListItemFavsWrapper(
         modifier = modifier,
         cardCorners = 0.dp,
         title = song.title,
-        artist = song.artist,
+        artist = song.displayArtist,
         albumArtUrl = song.albumArtUriString,
         isPlaying = stablePlayerState.isPlaying,
         isCurrentSong = song.id == stablePlayerState.currentSong?.id,

@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalMaterial3ExpressiveApi::class)
+
 package com.theveloper.pixelplay.presentation.components
 
 import androidx.compose.foundation.background
@@ -20,9 +22,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.DragIndicator
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.MediumExtendedFloatingActionButton
 import androidx.compose.material3.FabPosition
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -53,7 +56,7 @@ import racra.compose.smooth_corner_rect_library.AbsoluteSmoothCornerShape
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun ReorderTabsSheet(
     tabs: List<String>,
@@ -145,7 +148,7 @@ fun ReorderTabsSheet(
                         verticalArrangement = Arrangement.Center,
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        CircularProgressIndicator()
+                        ContainedLoadingIndicator()
                         Spacer(modifier = Modifier.height(16.dp))
                         Text("Reordering tabs...")
                     }
@@ -204,44 +207,40 @@ fun FloatingToolBar(
         cornerRadiusBL = 22.dp,
         smoothnessAsPercentBR = 60
     )
-    Surface(
+    Box(
         modifier = modifier
-    ) {
-        Box(
+            .padding(8.dp)
+            .background(
+                shape = backgroundShape,
+                color = MaterialTheme.colorScheme.surfaceContainerHigh
+            )
+    ){
+        Row(
             modifier = Modifier
-                .padding(8.dp)
-                .background(
-                    shape = backgroundShape,
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh
-                )
-        ){
-            Row(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .padding(12.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically
+                .align(Alignment.Center)
+                .padding(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(
+                modifier = Modifier.align(Alignment.CenterVertically),
+                onClick = onReset // This now calls the lambda from the parent
             ) {
-                IconButton(
-                    modifier = Modifier.align(Alignment.CenterVertically),
-                    onClick = onReset // This now calls the lambda from the parent
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.outline_restart_alt_24),
-                        contentDescription = "Reset",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                ExtendedFloatingActionButton(
-                    modifier = Modifier
-                        .align(Alignment.CenterVertically),
-                    shape = CircleShape,
-                    onClick = onClick,
-                    icon = { Icon(Icons.Rounded.Check, contentDescription = "Done") },
-                    text = { Text("Done") }
+                Icon(
+                    painter = painterResource(R.drawable.outline_restart_alt_24),
+                    contentDescription = "Reset",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+
+            MediumExtendedFloatingActionButton(
+                modifier = Modifier
+                    .align(Alignment.CenterVertically),
+                shape = CircleShape,
+                onClick = onClick,
+                icon = { Icon(Icons.Rounded.Check, contentDescription = "Done") },
+                text = { Text("Done") }
+            )
         }
     }
 }

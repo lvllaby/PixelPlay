@@ -50,7 +50,7 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MediumFloatingActionButton
+import androidx.compose.material3.MediumExtendedFloatingActionButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -95,6 +95,7 @@ import com.theveloper.pixelplay.presentation.viewmodel.SetupUiState
 import com.theveloper.pixelplay.presentation.viewmodel.SetupViewModel
 import com.theveloper.pixelplay.ui.theme.ExpTitleTypography
 import com.theveloper.pixelplay.ui.theme.GoogleSansRounded
+import com.theveloper.pixelplay.utils.StorageInfo
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.launch
@@ -112,7 +113,8 @@ fun SetupScreen(
     val uiState by setupViewModel.uiState.collectAsState()
     val currentPath by setupViewModel.currentPath.collectAsState()
     val directoryChildren by setupViewModel.currentDirectoryChildren.collectAsState()
-    val smartViewEnabled by setupViewModel.smartViewEnabled.collectAsState()
+    val availableStorages by setupViewModel.availableStorages.collectAsState()
+    val selectedStorageIndex by setupViewModel.selectedStorageIndex.collectAsState()
 
     // Re-check permissions when the screen is resumed
     DisposableEffect(lifecycleOwner) {
@@ -213,7 +215,8 @@ fun SetupScreen(
                         uiState = uiState,
                         currentPath = currentPath,
                         directoryChildren = directoryChildren,
-                        smartViewEnabled = smartViewEnabled,
+                        availableStorages = availableStorages,
+                        selectedStorageIndex = selectedStorageIndex,
                         isAtRoot = setupViewModel.isAtRoot(),
                         explorerRoot = setupViewModel.explorerRoot(),
                         onNavigateTo = setupViewModel::loadDirectory,
@@ -225,7 +228,7 @@ fun SetupScreen(
                             }
                         },
                         onToggleAllowed = setupViewModel::toggleDirectoryAllowed,
-                        onSmartViewToggle = setupViewModel::setSmartViewEnabled
+                        onStorageSelected = setupViewModel::selectStorage
                     )
                     SetupPage.NotificationsPermission -> NotificationsPermissionPage(uiState)
                     SetupPage.AllFilesPermission -> AllFilesPermissionPage(uiState)
@@ -242,7 +245,8 @@ fun DirectorySelectionPage(
     uiState: SetupUiState,
     currentPath: File,
     directoryChildren: List<DirectoryEntry>,
-    smartViewEnabled: Boolean,
+    availableStorages: List<StorageInfo>,
+    selectedStorageIndex: Int,
     isAtRoot: Boolean,
     explorerRoot: File,
     onNavigateTo: (File) -> Unit,
@@ -250,7 +254,7 @@ fun DirectorySelectionPage(
     onRefresh: () -> Unit,
     onSkip: () -> Unit,
     onToggleAllowed: (File) -> Unit,
-    onSmartViewToggle: (Boolean) -> Unit
+    onStorageSelected: (Int) -> Unit
 ) {
     var showDirectoryPicker by remember { mutableStateOf(false) }
     val context = LocalContext.current
@@ -260,9 +264,9 @@ fun DirectorySelectionPage(
     val canOpenDirectoryPicker = hasMediaPermission && hasAllFilesAccess
 
     PermissionPageLayout(
-        title = "Music Folders",
-        description = "Select the folders where your music is stored. If you skip this, you can select them later in settings.",
-        buttonText = "Select Folders",
+        title = "Excluded folders",
+        description = "All folders are scanned by default. Pick any locations you want to ignore when building your library.",
+        buttonText = "Choose folders to ignore",
         buttonEnabled = canOpenDirectoryPicker,
         onGrantClicked = {
             if (canOpenDirectoryPicker) {
@@ -294,7 +298,8 @@ fun DirectorySelectionPage(
         visible = showDirectoryPicker,
         currentPath = currentPath,
         directoryChildren = directoryChildren,
-        smartViewEnabled = smartViewEnabled,
+        availableStorages = availableStorages,
+        selectedStorageIndex = selectedStorageIndex,
         isLoading = uiState.isLoadingDirectories,
         isAtRoot = isAtRoot,
         rootDirectory = explorerRoot,
@@ -303,7 +308,7 @@ fun DirectorySelectionPage(
         onNavigateHome = { onNavigateTo(explorerRoot) },
         onToggleAllowed = onToggleAllowed,
         onRefresh = onRefresh,
-        onSmartViewToggle = onSmartViewToggle,
+        onStorageSelected = onStorageSelected,
         onDone = { showDirectoryPicker = false },
         onDismiss = { showDirectoryPicker = false }
     )
@@ -716,7 +721,7 @@ fun SetupBottomBar(
                 }
 
                 // 4. Aplica la forma y rotación animadas al botón
-                MediumFloatingActionButton(
+                MediumExtendedFloatingActionButton(
                     onClick = if (isLastPage) onFinishClicked else onNextClicked,
                     shape = AbsoluteSmoothCornerShape(
                         cornerRadiusTL = animatedTopStart.toInt().dp,

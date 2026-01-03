@@ -17,6 +17,17 @@ data class Album(
 data class Artist(
     val id: Long, // MediaStore.Audio.Artists._ID
     val name: String,
-    val songCount: Int
-    // Podrías añadir una forma de obtener una imagen representativa del artista si es necesario
+    val songCount: Int,
+    val imageUrl: String? = null // Deezer artist image URL
+)
+
+/**
+ * Represents a simplified artist reference for multi-artist support.
+ * Used when displaying multiple artists for a song.
+ */
+@Immutable
+data class ArtistRef(
+    val id: Long,
+    val name: String,
+    val isPrimary: Boolean = false
 )

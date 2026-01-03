@@ -22,6 +22,8 @@
     <string name="searched_for_x_format">Searched for \"%s\"</string>
     <string name="search">Search</string>
     <string name="searching_lyrics">Searching for lyrics…</string>
+    <string name="fetch_lyrics_show_options_title">Show lyric options</string>
+    <string name="fetch_lyrics_show_options_subtitle">Always open the picker instead of auto-applying the first match</string>
     <string name="error">Error</string>
     <string name="ok">OK</string>
     <string name="cancel">Cancel</string>
@@ -29,6 +31,7 @@
     <string name="unknown_song_title">Unknown track</string>
     <string name="unknown_artist">Unknown artist</string>
     <string name="unknown_album">Unknown album</string>
+    <string name="artist_picker_title">Pick an Artist</string>
     <string name="external_queue_label">Quick play</string>
     <string name="external_playback_error">Unable to open that audio file.</string>
     <string name="open_full_player">Open full player</string>
@@ -37,4 +40,5 @@
     <string name="next_track">Next track</string>
     <string name="pause_playback">Pause playback</string>
     <string name="play_playback">Play</string>
+    <string name="playlist_not_found">Playlist not found.</string>
 </resources>

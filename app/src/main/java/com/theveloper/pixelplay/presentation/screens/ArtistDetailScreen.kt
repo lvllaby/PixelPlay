@@ -1,3 +1,4 @@
+@file:OptIn(ExperimentalMaterial3ExpressiveApi::class)
 
 package com.theveloper.pixelplay.presentation.screens
 
@@ -59,9 +60,13 @@ import com.theveloper.pixelplay.presentation.viewmodel.PlaylistViewModel
 import com.theveloper.pixelplay.utils.shapes.RoundedStarShape
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 
 @androidx.annotation.OptIn(UnstableApi::class)
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun ArtistDetailScreen(
     artistId: String,
@@ -167,7 +172,7 @@ fun ArtistDetailScreen(
             when {
                 uiState.isLoading && uiState.artist == null -> {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
+                        ContainedLoadingIndicator()
                     }
                 }
                 uiState.error != null && uiState.artist == null -> {
@@ -425,18 +430,32 @@ private fun CustomCollapsingTopBar(
                 .fillMaxSize()
                 .graphicsLayer { alpha = headerContentAlpha }
         ) {
-            MusicIconPattern(
-                modifier = Modifier.fillMaxSize(),
-                collapseFraction = collapseFraction
-            )
+            // Artist artwork or fallback pattern
+            if (!artist.imageUrl.isNullOrEmpty()) {
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(artist.imageUrl)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = artist.name,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                MusicIconPattern(
+                    modifier = Modifier.fillMaxSize(),
+                    collapseFraction = collapseFraction
+                )
+            }
 
+            // Gradient overlay for text readability
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(
                         Brush.verticalGradient(
                             colorStops = arrayOf(
-                                0.4f to Color.Transparent,
+                                0.3f to Color.Transparent,
                                 1f to MaterialTheme.colorScheme.surface
                             )
                         )
@@ -501,7 +520,7 @@ private fun CustomCollapsingTopBar(
             }
 
             // Botón de Play
-            LargeFloatingActionButton(
+            LargeExtendedFloatingActionButton(
                 onClick = onPlayClick,
                 shape = RoundedStarShape(sides = 8, curve = 0.05, rotation = 0f),
                 modifier = Modifier

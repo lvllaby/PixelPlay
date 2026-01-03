@@ -11,6 +11,7 @@ import androidx.lifecycle.viewModelScope
 import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
 import com.theveloper.pixelplay.data.worker.SyncManager
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
@@ -24,7 +25,7 @@ data class SetupUiState(
     val notificationsPermissionGranted: Boolean = false,
     val allFilesAccessGranted: Boolean = false,
     val isLoadingDirectories: Boolean = false,
-    val allowedDirectories: Set<String> = emptySet()
+    val blockedDirectories: Set<String> = emptySet()
 ) {
     val allPermissionsGranted: Boolean
         get() {
@@ -39,23 +40,25 @@ data class SetupUiState(
 class SetupViewModel @Inject constructor(
     private val userPreferencesRepository: UserPreferencesRepository,
     private val syncManager: SyncManager,
+    @ApplicationContext private val context: Context
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SetupUiState())
     val uiState = _uiState.asStateFlow()
 
-    private val fileExplorerStateHolder = FileExplorerStateHolder(userPreferencesRepository, viewModelScope)
+    private val fileExplorerStateHolder = FileExplorerStateHolder(userPreferencesRepository, viewModelScope, context)
 
     val currentPath = fileExplorerStateHolder.currentPath
     val currentDirectoryChildren = fileExplorerStateHolder.currentDirectoryChildren
-    val allowedDirectories = fileExplorerStateHolder.allowedDirectories
-    val smartViewEnabled = fileExplorerStateHolder.smartViewEnabled
+    val blockedDirectories = fileExplorerStateHolder.blockedDirectories
+    val availableStorages = fileExplorerStateHolder.availableStorages
+    val selectedStorageIndex = fileExplorerStateHolder.selectedStorageIndex
     val isLoadingDirectories = fileExplorerStateHolder.isLoading
 
     init {
         viewModelScope.launch {
-            userPreferencesRepository.allowedDirectoriesFlow.collect { allowed ->
-                _uiState.update { it.copy(allowedDirectories = allowed) }
+            userPreferencesRepository.blockedDirectoriesFlow.collect { blocked ->
+                _uiState.update { it.copy(blockedDirectories = blocked) }
             }
         }
 
@@ -98,21 +101,11 @@ class SetupViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoadingDirectories = true) }
             if (!userPreferencesRepository.initialSetupDoneFlow.first()) {
-                val allowedDirs = userPreferencesRepository.allowedDirectoriesFlow.first()
-                if (allowedDirs.isEmpty()) {
-                    val musicDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC)
-                    val defaultAllowed = if (musicDir.exists()) {
-                        runCatching { musicDir.canonicalPath }.getOrDefault(musicDir.absolutePath)
-                    } else null
-                    userPreferencesRepository.updateDirectorySelections(
-                        defaultAllowed?.let { setOf(it) } ?: emptySet(),
-                        emptySet()
-                    )
-                }
+                // Blacklist model: default is allow all, so no setup needed.
             }
 
-            userPreferencesRepository.allowedDirectoriesFlow.first().let { allowed ->
-                _uiState.update { it.copy(allowedDirectories = allowed) }
+            userPreferencesRepository.blockedDirectoriesFlow.first().let { blocked ->
+                _uiState.update { it.copy(blockedDirectories = blocked) }
             }
             fileExplorerStateHolder.refreshCurrentDirectory()
             _uiState.update { it.copy(isLoadingDirectories = false) }
@@ -128,8 +121,12 @@ class SetupViewModel @Inject constructor(
         fileExplorerStateHolder.loadDirectory(file)
     }
 
-    fun setSmartViewEnabled(enabled: Boolean) {
-        fileExplorerStateHolder.setSmartViewEnabled(enabled)
+    fun selectStorage(index: Int) {
+        fileExplorerStateHolder.selectStorage(index)
+    }
+
+    fun refreshAvailableStorages() {
+        fileExplorerStateHolder.refreshAvailableStorages()
     }
 
     fun refreshCurrentDirectory() {

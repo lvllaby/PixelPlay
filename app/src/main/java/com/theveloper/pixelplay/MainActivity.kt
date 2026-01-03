@@ -82,7 +82,10 @@ import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
 import com.theveloper.pixelplay.ui.theme.DarkColorScheme
 import com.theveloper.pixelplay.ui.theme.LightColorScheme
 import com.theveloper.pixelplay.ui.theme.PixelPlayTheme
+import com.theveloper.pixelplay.utils.CrashHandler
+import com.theveloper.pixelplay.utils.CrashLogData
 import com.theveloper.pixelplay.utils.LogUtils
+import com.theveloper.pixelplay.presentation.components.CrashReportDialog
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.delay
@@ -135,6 +138,12 @@ import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
 import com.theveloper.pixelplay.data.worker.SyncManager
 import com.theveloper.pixelplay.presentation.components.MiniPlayerBottomSpacer
 import racra.compose.smooth_corner_rect_library.AbsoluteSmoothCornerShape
+import com.theveloper.pixelplay.presentation.components.AppSidebarDrawer
+import com.theveloper.pixelplay.presentation.components.DrawerDestination
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.rememberDrawerState
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @Immutable
@@ -172,6 +181,9 @@ class MainActivity : ComponentActivity() {
         }
         super.onCreate(savedInstanceState)
 
+        // LEER SEÑAL DE BENCHMARK
+        val isBenchmarkMode = intent.getBooleanExtra("is_benchmark", false)
+
         setContent {
             val mainViewModel: MainViewModel = hiltViewModel()
             val systemDarkTheme = isSystemInDarkTheme()
@@ -183,10 +195,22 @@ class MainActivity : ComponentActivity() {
             }
             val isSetupComplete by mainViewModel.isSetupComplete.collectAsState()
             var showSetupScreen by remember { mutableStateOf<Boolean?>(null) }
+            
+            // Crash report dialog state
+            var showCrashReportDialog by remember { mutableStateOf(false) }
+            var crashLogData by remember { mutableStateOf<CrashLogData?>(null) }
 
             LaunchedEffect(isSetupComplete) {
                 if (showSetupScreen == null) {
-                    showSetupScreen = !isSetupComplete
+                    showSetupScreen = if (isBenchmarkMode) false else !isSetupComplete
+                }
+            }
+            
+            // Check for crash log when app starts
+            LaunchedEffect(Unit) {
+                if (CrashHandler.hasCrashLog()) {
+                    crashLogData = CrashHandler.getCrashLog()
+                    showCrashReportDialog = true
                 }
             }
 
@@ -212,9 +236,21 @@ class MainActivity : ComponentActivity() {
                             if (targetState == true) {
                                 SetupScreen(onSetupComplete = { showSetupScreen = false })
                             } else {
-                                HandlePermissions(mainViewModel)
+                                HandlePermissions(mainViewModel, isBenchmarkMode)
                             }
                         }
+                    }
+                    
+                    // Show crash report dialog if needed
+                    if (showCrashReportDialog && crashLogData != null) {
+                        CrashReportDialog(
+                            crashLog = crashLogData!!,
+                            onDismiss = {
+                                CrashHandler.clearCrashLog()
+                                crashLogData = null
+                                showCrashReportDialog = false
+                            }
+                        )
                     }
                 }
             }
@@ -297,7 +333,7 @@ class MainActivity : ComponentActivity() {
 
     @OptIn(ExperimentalPermissionsApi::class)
     @Composable
-    private fun HandlePermissions(mainViewModel: MainViewModel) {
+    private fun HandlePermissions(mainViewModel: MainViewModel, isBenchmark: Boolean) {
         val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             listOf(Manifest.permission.READ_MEDIA_AUDIO, Manifest.permission.POST_NOTIFICATIONS)
         } else {
@@ -306,6 +342,8 @@ class MainActivity : ComponentActivity() {
         val permissionState = rememberMultiplePermissionsState(permissions = permissions)
 
         var showAllFilesAccessDialog by remember { mutableStateOf(false) }
+        val needsAllFilesAccess = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+                !android.os.Environment.isExternalStorageManager()
 
         LaunchedEffect(Unit) {
             if (!permissionState.allPermissionsGranted) {
@@ -318,7 +356,7 @@ class MainActivity : ComponentActivity() {
                 LogUtils.i(this, "Permissions granted")
                 Log.i("MainActivity", "Permissions granted. Calling mainViewModel.startSync()")
                 mainViewModel.startSync()
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !android.os.Environment.isExternalStorageManager()) {
+                if (needsAllFilesAccess && !isBenchmark) {
                     showAllFilesAccessDialog = true
                 }
             }
@@ -398,6 +436,7 @@ class MainActivity : ComponentActivity() {
         }
         val navBackStackEntry by navController.currentBackStackEntryAsState()
         val currentRoute = navBackStackEntry?.destination?.route
+        var isSearchBarActive by remember { mutableStateOf(false) }
         val routesWithHiddenNavigationBar = remember {
             setOf(
                 Screen.Settings.route,
@@ -410,20 +449,28 @@ class MainActivity : ComponentActivity() {
                 Screen.NavBarCrRad.route,
                 Screen.About.route,
                 Screen.Stats.route,
-                Screen.EditTransition.route
+                Screen.EditTransition.route,
+                Screen.Experimental.route,
+                Screen.ArtistSettings.route,
+                Screen.Equalizer.route,
+                Screen.SettingsCategory.route
             )
         }
-        val shouldHideNavigationBar by remember(currentRoute) {
+        val shouldHideNavigationBar by remember(currentRoute, isSearchBarActive) {
             derivedStateOf {
-                currentRoute?.let { route ->
-                    routesWithHiddenNavigationBar.any { hiddenRoute ->
-                        if (hiddenRoute.contains("{")) {
-                            route.startsWith(hiddenRoute.substringBefore("{"))
-                        } else {
-                            route == hiddenRoute
+                if (currentRoute == Screen.Search.route && isSearchBarActive) {
+                    true
+                } else {
+                    currentRoute?.let { route ->
+                        routesWithHiddenNavigationBar.any { hiddenRoute ->
+                            if (hiddenRoute.contains("{")) {
+                                route.startsWith(hiddenRoute.substringBefore("{"))
+                            } else {
+                                route == hiddenRoute
+                            }
                         }
-                    }
-                } ?: false
+                    } ?: false
+                }
             }
         }
 
@@ -437,7 +484,24 @@ class MainActivity : ComponentActivity() {
             0.dp
         }
 
-        Scaffold(
+        val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+        val scope = rememberCoroutineScope()
+
+        AppSidebarDrawer(
+            drawerState = drawerState,
+            selectedRoute = currentRoute ?: Screen.Home.route,
+            onDestinationSelected = { destination ->
+                scope.launch { drawerState.close() }
+                when (destination) {
+                    DrawerDestination.Home -> navController.navigate(Screen.Home.route) {
+                        popUpTo(Screen.Home.route) { inclusive = true }
+                    }
+                    DrawerDestination.Equalizer -> navController.navigate(Screen.Equalizer.route)
+                    DrawerDestination.Settings -> navController.navigate(Screen.Settings.route)
+                }
+            }
+        ) {
+            Scaffold(
             modifier = Modifier.fillMaxSize(),
             bottomBar = {
                 if (!shouldHideNavigationBar) {
@@ -579,7 +643,9 @@ class MainActivity : ComponentActivity() {
                     playerViewModel = playerViewModel,
                     navController = navController,
                     paddingValues = innerPadding,
-                    userPreferencesRepository = userPreferencesRepository
+                    userPreferencesRepository = userPreferencesRepository,
+                    onSearchBarActiveChange = { isSearchBarActive = it },
+                    onOpenSidebar = { scope.launch { drawerState.open() } }
                 )
 
                 UnifiedPlayerSheet(
@@ -619,7 +685,8 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-        Trace.endSection()
+    }
+    Trace.endSection()
     }
 
     @Composable
@@ -677,6 +744,11 @@ class MainActivity : ComponentActivity() {
         super.onStart()
         LogUtils.d(this, "onStart")
         playerViewModel.onMainActivityStart()
+
+        if (intent.getBooleanExtra("is_benchmark", false)) {
+            playerViewModel.loadDummyDataForBenchmark()
+        }
+
         val sessionToken = SessionToken(this, ComponentName(this, MusicService::class.java))
         mediaControllerFuture = MediaController.Builder(this, sessionToken).buildAsync()
         mediaControllerFuture?.addListener({

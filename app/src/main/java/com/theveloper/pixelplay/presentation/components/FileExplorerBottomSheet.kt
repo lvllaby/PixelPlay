@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalMaterial3ExpressiveApi::class)
+
 package com.theveloper.pixelplay.presentation.components
 
 import androidx.compose.animation.AnimatedContent
@@ -35,18 +37,26 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Done
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.FolderOff
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Refresh
-import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ContainedLoadingIndicator
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.MediumExtendedFloatingActionButton
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MediumFlexibleTopAppBar
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -78,14 +88,17 @@ import androidx.compose.ui.window.DialogProperties
 import com.theveloper.pixelplay.presentation.screens.TabAnimation
 import com.theveloper.pixelplay.presentation.viewmodel.DirectoryEntry
 import com.theveloper.pixelplay.ui.theme.GoogleSansRounded
+import com.theveloper.pixelplay.utils.StorageInfo
 import java.io.File
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun FileExplorerDialog(
     visible: Boolean,
     currentPath: File,
     directoryChildren: List<DirectoryEntry>,
-    smartViewEnabled: Boolean,
+    availableStorages: List<StorageInfo>,
+    selectedStorageIndex: Int,
     isLoading: Boolean,
     isAtRoot: Boolean,
     rootDirectory: File,
@@ -94,18 +107,12 @@ fun FileExplorerDialog(
     onNavigateHome: () -> Unit,
     onToggleAllowed: (File) -> Unit,
     onRefresh: () -> Unit,
-    onSmartViewToggle: (Boolean) -> Unit,
+    onStorageSelected: (Int) -> Unit,
     onDone: () -> Unit,
     onDismiss: () -> Unit
 ) {
     val transitionState = remember { MutableTransitionState(false) }
     transitionState.targetState = visible
-
-    LaunchedEffect(visible) {
-        if (visible) {
-            onSmartViewToggle(false)
-        }
-    }
 
     if (transitionState.currentState || transitionState.targetState) {
         Dialog(
@@ -128,7 +135,8 @@ fun FileExplorerDialog(
                     FileExplorerContent(
                         currentPath = currentPath,
                         directoryChildren = directoryChildren,
-                        smartViewEnabled = smartViewEnabled,
+                        availableStorages = availableStorages,
+                        selectedStorageIndex = selectedStorageIndex,
                         isLoading = isLoading,
                         isAtRoot = isAtRoot,
                         rootDirectory = rootDirectory,
@@ -137,8 +145,9 @@ fun FileExplorerDialog(
                         onNavigateHome = onNavigateHome,
                         onToggleAllowed = onToggleAllowed,
                         onRefresh = onRefresh,
-                        onSmartViewToggle = onSmartViewToggle,
+                        onStorageSelected = onStorageSelected,
                         onDone = onDone,
+                        onDismiss = onDismiss,
                         modifier = Modifier.fillMaxSize()
                     )
                 }
@@ -147,11 +156,13 @@ fun FileExplorerDialog(
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun FileExplorerContent(
     currentPath: File,
     directoryChildren: List<DirectoryEntry>,
-    smartViewEnabled: Boolean,
+    availableStorages: List<StorageInfo>,
+    selectedStorageIndex: Int,
     isLoading: Boolean,
     isAtRoot: Boolean,
     rootDirectory: File,
@@ -160,9 +171,10 @@ fun FileExplorerContent(
     onNavigateHome: () -> Unit,
     onToggleAllowed: (File) -> Unit,
     onRefresh: () -> Unit,
-    onSmartViewToggle: (Boolean) -> Unit,
+    onStorageSelected: (Int) -> Unit,
     onDone: () -> Unit,
-    title: String = "Music folders",
+    onDismiss: () -> Unit,
+    title: String = "Excluded folders",
     leadingContent: @Composable (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
@@ -171,9 +183,50 @@ fun FileExplorerContent(
     Scaffold(
         modifier = modifier,
         containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        topBar = {
+            CenterAlignedTopAppBar(
+                title = {
+                    Text(
+                        text = title,
+                        fontFamily = GoogleSansRounded,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                },
+                navigationIcon = {
+                    FilledIconButton(
+                        modifier = Modifier.padding(start = 6.dp),
+                        onClick = onDismiss,
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
+                            contentColor = MaterialTheme.colorScheme.onSurface
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Close,
+                            contentDescription = "Close"
+                        )
+                    }
+                },
+                actions = {
+                    FilledIconButton(
+                        modifier = Modifier.padding(end = 6.dp),
+                        onClick = onRefresh,
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Refresh,
+                            contentDescription = "Refresh"
+                        )
+                    }
+                }
+            )
+        },
         contentWindowInsets = WindowInsets.systemBars,
         floatingActionButton = {
-            ExtendedFloatingActionButton(
+            MediumExtendedFloatingActionButton(
                 modifier = Modifier.padding(end = 12.dp),
                 onClick = onDone,
                 containerColor = MaterialTheme.colorScheme.tertiaryContainer,
@@ -196,91 +249,111 @@ fun FileExplorerContent(
                 .fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(7.2.dp)
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 10.dp)
-                    .padding(horizontal = 16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    leadingContent?.invoke()
-                    Text(
-                        text = title,
-                        style = MaterialTheme.typography.titleLarge.copy(fontSize = 28.sp),
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.padding(start = 6.dp)
-                    )
-                }
+//            Row(
+//                modifier = Modifier
+//                    .fillMaxWidth()
+//                    .padding(top = 10.dp)
+//                    .padding(horizontal = 16.dp),
+//                verticalAlignment = Alignment.CenterVertically,
+//                horizontalArrangement = Arrangement.SpaceBetween
+//            ) {
+//                Row(
+//                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+//                    verticalAlignment = Alignment.CenterVertically
+//                ) {
+//                    FilledIconButton(
+//                        onClick = onDismiss,
+//                        colors = IconButtonDefaults.filledIconButtonColors(
+//                            containerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
+//                            contentColor = MaterialTheme.colorScheme.onSurface
+//                        )
+//                    ) {
+//                        Icon(
+//                            imageVector = Icons.Rounded.Close,
+//                            contentDescription = "Close"
+//                        )
+//                    }
+//                    leadingContent?.invoke()
+//                    Text(
+//                        text = title,
+//                        style = MaterialTheme.typography.titleLarge.copy(fontSize = 24.sp),
+//                        color = MaterialTheme.colorScheme.onSurface,
+//                        modifier = Modifier.padding(start = 6.dp)
+//                    )
+//                }
+//
+//                FilledIconButton(
+//                    modifier = Modifier.padding(end = 4.dp),
+//                    onClick = onRefresh,
+//                    colors = IconButtonDefaults.filledIconButtonColors(
+//                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+//                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+//                    )
+//                ) {
+//                    Icon(
+//                        imageVector = Icons.Rounded.Refresh,
+//                        contentDescription = "Refresh"
+//                    )
+//                }
+//            }
 
-                FilledIconButton(
-                    modifier = Modifier.padding(end = 4.dp),
-                    onClick = onRefresh,
-                    colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-                    )
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Refresh,
-                        contentDescription = "Refresh"
-                    )
-                }
-            }
-
-            val tabTitles = listOf("All folders", "Smart View (β)")
-            val selectedTabIndex = if (smartViewEnabled) 1 else 0
-
-            TabRow(
-                modifier = Modifier
-                    .fillMaxWidth(),
-                selectedTabIndex = selectedTabIndex,
-                containerColor = Color.Transparent,
-                indicator = { tabPositions ->
-                    if (selectedTabIndex < tabPositions.size) {
-                        TabRowDefaults.PrimaryIndicator(
-                            modifier = Modifier.tabIndicatorOffset(tabPositions[selectedTabIndex]),
-                            height = 3.dp,
-                            color = Color.Transparent
-                        )
-                    }
-                },
-                divider = {}
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(0.dp)
-                ) {
-                    tabTitles.forEachIndexed { index, title ->
-                        if(index == 0){
-                            Spacer(modifier = Modifier.width(14.dp))
-                        }
-                        TabAnimation(
-                            modifier = Modifier.weight(1f),
-                            index = index,
-                            title = title,
-                            selectedIndex = selectedTabIndex,
-                            onClick = { onSmartViewToggle(index == 1) }
-                        ) {
-                            Text(
-                                text = title,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                fontFamily = GoogleSansRounded
+            // Only show storage tabs if there's more than one storage
+            if (availableStorages.size > 1) {
+                TabRow(
+                    modifier = Modifier
+                        .fillMaxWidth(),
+                    selectedTabIndex = selectedStorageIndex,
+                    containerColor = Color.Transparent,
+                    indicator = { tabPositions ->
+                        if (selectedStorageIndex < tabPositions.size) {
+                            TabRowDefaults.PrimaryIndicator(
+                                modifier = Modifier.tabIndicatorOffset(tabPositions[selectedStorageIndex]),
+                                height = 3.dp,
+                                color = Color.Transparent
                             )
                         }
-                        if (index == 1){
-                            Spacer(modifier = Modifier.width(14.dp))
+                    },
+                    divider = {}
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(0.dp)
+                    ) {
+                        availableStorages.forEachIndexed { index, storage ->
+                            if (index == 0) {
+                                Spacer(modifier = Modifier.width(14.dp))
+                            }
+                            TabAnimation(
+                                modifier = Modifier.weight(1f),
+                                index = index,
+                                title = storage.displayName,
+                                selectedIndex = selectedStorageIndex,
+                                onClick = { onStorageSelected(index) }
+                            ) {
+                                Text(
+                                    text = storage.displayName,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    fontFamily = GoogleSansRounded
+                                )
+                            }
+                            if (index == availableStorages.lastIndex) {
+                                Spacer(modifier = Modifier.width(14.dp))
+                            }
                         }
                     }
-                    //Spacer(modifier = Modifier.width(14.dp))
                 }
             }
+
+            Text(
+                text = "Everything is allowed by default. Tap a folder to mark it as excluded from scans.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .padding(top = 10.dp)
+                    .padding(horizontal = 18.dp)
+            )
 
             FileExplorerHeader(
                 modifier = Modifier.padding(horizontal = 18.dp),
@@ -290,7 +363,7 @@ fun FileExplorerContent(
                 onNavigateUp = onNavigateUp,
                 onNavigateHome = onNavigateHome,
                 onNavigateTo = onNavigateTo,
-                navigationEnabled = !smartViewEnabled
+                navigationEnabled = true
             )
 
             Box(modifier = Modifier.weight(1f)) {
@@ -311,10 +384,12 @@ fun FileExplorerContent(
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .padding(horizontal = 18.dp)
-                                    .clip(RoundedCornerShape(
-                                        topEnd = 20.dp,
-                                        topStart = 20.dp
-                                    )),
+                                    .clip(
+                                        RoundedCornerShape(
+                                            topEnd = 20.dp,
+                                            topStart = 20.dp
+                                        )
+                                    ),
 //                                contentPadding = PaddingValues(
 //                                    horizontal = 16.dp
 //                                ),
@@ -322,20 +397,16 @@ fun FileExplorerContent(
                                 state = listState
                             ) {
                                 items(children, key = { it.file.absolutePath }) { directoryEntry ->
-                                    val displayCount = if (smartViewEnabled) {
-                                        directoryEntry.directAudioCount
-                                    } else {
-                                        directoryEntry.totalAudioCount
-                                    }
+                                    val displayCount = directoryEntry.totalAudioCount
 
                                     FileExplorerItem(
                                         file = directoryEntry.file,
                                         audioCount = displayCount,
                                         displayName = directoryEntry.displayName,
-                                        isAllowed = directoryEntry.isSelected,
+                                        isBlocked = directoryEntry.isBlocked,
                                         onNavigate = { onNavigateTo(directoryEntry.file) },
                                         onToggleAllowed = { onToggleAllowed(directoryEntry.file) },
-                                        navigationEnabled = !smartViewEnabled
+                                        navigationEnabled = true
                                     )
                                 }
                                 item { Spacer(modifier = Modifier.height(76.dp)) }
@@ -399,7 +470,7 @@ private fun ExplorerLoadingState() {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        androidx.compose.material3.CircularProgressIndicator()
+        ContainedLoadingIndicator()
         Spacer(modifier = Modifier.height(12.dp))
         Text(
             text = "Loading folders…",
@@ -415,27 +486,29 @@ private fun FileExplorerItem(
     file: File,
     audioCount: Int,
     displayName: String?,
-    isAllowed: Boolean,
+    isBlocked: Boolean,
     onNavigate: () -> Unit,
     onToggleAllowed: () -> Unit,
     navigationEnabled: Boolean
 ) {
     val shape = RoundedCornerShape(18.dp)
 
-    val containerColor = if (isAllowed) {
-        MaterialTheme.colorScheme.primaryContainer
+    val isAllowed = !isBlocked
+
+    val containerColor = if (isBlocked) {
+        MaterialTheme.colorScheme.errorContainer
     } else {
         MaterialTheme.colorScheme.surfaceContainerHigh
     }
 
-    val contentColor = if (isAllowed) {
-        MaterialTheme.colorScheme.onPrimaryContainer
+    val contentColor = if (isBlocked) {
+        MaterialTheme.colorScheme.onErrorContainer
     } else {
         MaterialTheme.colorScheme.onSurface
     }
 
-    val badgeColor = if (isAllowed) {
-        MaterialTheme.colorScheme.onPrimaryContainer
+    val badgeColor = if (isBlocked) {
+        MaterialTheme.colorScheme.onErrorContainer
     } else {
         MaterialTheme.colorScheme.secondary
     }
@@ -475,9 +548,9 @@ private fun FileExplorerItem(
             Text(
                 text = file.absolutePath,
                 style = MaterialTheme.typography.bodySmall,
-                color = if (isAllowed) contentColor.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant,
+                color = contentColor.copy(alpha = 0.7f),
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.StartEllipsis
             )
             Spacer(
                 modifier = Modifier
@@ -511,14 +584,24 @@ private fun FileExplorerItem(
             Spacer(modifier = Modifier.width(8.dp))
         }
 
-        RadioButton(
-            selected = isAllowed,
-            onClick = onToggleAllowed,
-            colors = androidx.compose.material3.RadioButtonDefaults.colors(
-                selectedColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                unselectedColor = MaterialTheme.colorScheme.onSurfaceVariant
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = if (isBlocked) "Excluded" else "Included",
+                style = MaterialTheme.typography.labelMedium,
+                color = if (isBlocked) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSurfaceVariant
             )
-        )
+            RadioButton(
+                selected = isBlocked,
+                onClick = onToggleAllowed,
+                colors = RadioButtonDefaults.colors(
+                    selectedColor = MaterialTheme.colorScheme.onErrorContainer,
+                    unselectedColor = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            )
+        }
     }
 }
 
@@ -665,7 +748,9 @@ private fun FileExplorerHeader(
                                         imageVector = Icons.Rounded.Home,
                                         contentDescription = "Go to root",
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(end = 4.dp).size(16.dp)
+                                        modifier = Modifier
+                                            .padding(end = 4.dp)
+                                            .size(16.dp)
                                     )
                                 }
                                 Text(

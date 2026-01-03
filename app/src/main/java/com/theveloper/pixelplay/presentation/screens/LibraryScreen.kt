@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalMaterial3ExpressiveApi::class)
+
 package com.theveloper.pixelplay.presentation.screens
 
 import android.os.Trace
@@ -8,6 +10,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,6 +29,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -38,10 +42,11 @@ import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
@@ -54,6 +59,8 @@ import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -82,6 +89,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.util.UnstableApi
 import androidx.navigation.NavController
+import coil.compose.AsyncImage
 import coil.compose.AsyncImagePainter
 import coil.imageLoader
 import coil.request.ImageRequest
@@ -112,6 +120,7 @@ import com.theveloper.pixelplay.presentation.viewmodel.PlaylistUiState
 import com.theveloper.pixelplay.presentation.viewmodel.PlaylistViewModel
 import com.theveloper.pixelplay.data.model.LibraryTabId
 import com.theveloper.pixelplay.data.model.toLibraryTabIdOrNull
+import com.theveloper.pixelplay.data.preferences.LibraryNavigationMode
 import com.theveloper.pixelplay.presentation.components.LibrarySortBottomSheet
 import android.content.Intent
 import android.net.Uri
@@ -122,6 +131,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -129,6 +139,13 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material3.ButtonDefaults
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
@@ -139,8 +156,12 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import racra.compose.smooth_corner_rect_library.AbsoluteSmoothCornerShape
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.ripple
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.input.pointer.pointerInput
 import com.theveloper.pixelplay.presentation.components.AutoScrollingTextOnDemand
 import com.theveloper.pixelplay.presentation.components.CreatePlaylistDialogRedesigned
@@ -148,12 +169,13 @@ import com.theveloper.pixelplay.presentation.components.PlaylistBottomSheet
 import com.theveloper.pixelplay.presentation.components.PlaylistContainer
 import com.theveloper.pixelplay.presentation.components.subcomps.PlayingEqIcon
 import com.theveloper.pixelplay.ui.theme.GoogleSansRounded
+import java.util.Locale
 
 val ListExtraBottomGap = 30.dp
 val PlayerSheetCollapsedCornerRadius = 32.dp
 
 @RequiresApi(Build.VERSION_CODES.R)
-@OptIn(ExperimentalPermissionsApi::class, ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalPermissionsApi::class, ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable
 fun LibraryScreen(
@@ -175,9 +197,18 @@ fun LibraryScreen(
     val tabTitles by playerViewModel.libraryTabsFlow.collectAsState()
     val pagerState = rememberPagerState(initialPage = lastTabIndex) { tabTitles.size }
     val currentTabId by playerViewModel.currentLibraryTabId.collectAsState()
+    val libraryNavigationMode by playerViewModel.libraryNavigationMode.collectAsState()
     val isSortSheetVisible by playerViewModel.isSortingSheetVisible.collectAsState()
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
+
+    val m3uImportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri?.let { playlistViewModel.importM3u(it) }
+    }
+
     var showReorderTabsSheet by remember { mutableStateOf(false) }
+    var showTabSwitcherSheet by remember { mutableStateOf(false) }
 
     val stableOnMoreOptionsClick: (Song) -> Unit = remember {
         { song ->
@@ -243,21 +274,43 @@ fun LibraryScreen(
         Brush.verticalGradient(colors = gradientColors)
     }
 
+    val isCompactNavigation = libraryNavigationMode == LibraryNavigationMode.COMPACT_PILL
+    val currentTab = tabTitles.getOrNull(pagerState.currentPage)?.toLibraryTabIdOrNull() ?: currentTabId
+    val currentTabTitle = currentTab.displayTitle()
+
     Scaffold(
         modifier = Modifier.background(brush = gradientBrush),
         topBar = {
             TopAppBar(
                 title = {
-                    Text(
-                        modifier = Modifier.padding(start = 8.dp),
-                        text = "Library",
-                        fontFamily = GoogleSansRounded,
-                        //style = ExpTitleTypography.titleMedium,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontSize = 40.sp,
-                        letterSpacing = 1.sp
-                    )
+                    if (isCompactNavigation) {
+                        LibraryNavigationPill(
+                            title = currentTabTitle,
+                            isExpanded = showTabSwitcherSheet,
+                            iconRes = currentTab.iconRes(),
+                            pageIndex = pagerState.currentPage,
+                            onClick = {
+                                showTabSwitcherSheet = true
+                            },
+                            onArrowClick = { showTabSwitcherSheet = true }
+                        )
+//                        LibraryNavigationPill(
+//                            title = currentTabTitle,
+//                            animationDirection = pillAnimationDirection,
+//                            onClick = { showTabSwitcherSheet = true }
+//                        )
+                    } else {
+                        Text(
+                            modifier = Modifier.padding(start = 8.dp),
+                            text = "Library",
+                            fontFamily = GoogleSansRounded,
+                            //style = ExpTitleTypography.titleMedium,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontSize = 40.sp,
+                            letterSpacing = 1.sp
+                        )
+                    }
                 },
                 actions = {
                     FilledIconButton(
@@ -306,49 +359,53 @@ fun LibraryScreen(
                     .background(brush = Brush.verticalGradient(gradientColors))
                     .fillMaxSize()
             ) {
-                ScrollableTabRow(
-                    selectedTabIndex = pagerState.currentPage,
-                    containerColor = Color.Transparent,
-                    edgePadding = 12.dp,
-                    indicator = { tabPositions ->
-                        if (pagerState.currentPage < tabPositions.size) {
-                            TabRowDefaults.PrimaryIndicator(
-                                modifier = Modifier.tabIndicatorOffset(tabPositions[pagerState.currentPage]),
-                                height = 3.dp,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    },
-                    divider = {}
-                ) {
-                    tabTitles.forEachIndexed { index, rawId ->
-                        val tabId = rawId.toLibraryTabIdOrNull() ?: LibraryTabId.SONGS
-                        TabAnimation(
-                            index = index,
-                            title = tabId.storageKey,
-                            selectedIndex = pagerState.currentPage,
-                            onClick = { scope.launch { pagerState.animateScrollToPage(index) } }
-                        ) {
-                            Text(
-                                text = tabId.title,
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = if (pagerState.currentPage == index) FontWeight.Bold else FontWeight.Medium
-                            )
-                        }
-                    }
-                    TabAnimation(
-//                        modifier = Modifier.aspectRatio(1f),
-                        index = -1, // A non-matching index to keep it unselected
-                        title = "Edit",
-                        selectedIndex = pagerState.currentPage,
-                        onClick = { showReorderTabsSheet = true }
+                if (!isCompactNavigation) {
+                    ScrollableTabRow(
+                        selectedTabIndex = pagerState.currentPage,
+                        containerColor = Color.Transparent,
+                        edgePadding = 12.dp,
+                        indicator = { tabPositions ->
+                            if (pagerState.currentPage < tabPositions.size) {
+                                TabRowDefaults.PrimaryIndicator(
+                                    modifier = Modifier.tabIndicatorOffset(tabPositions[pagerState.currentPage]),
+                                    height = 3.dp,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        },
+                        divider = {}
                     ) {
-                        Icon(
-                            Icons.Default.Edit,
-                            contentDescription = "Reorder tabs",
-                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f)
-                        )
+                        tabTitles.forEachIndexed { index, rawId ->
+                            val tabId = rawId.toLibraryTabIdOrNull() ?: LibraryTabId.SONGS
+                            TabAnimation(
+                                index = index,
+                                title = tabId.storageKey,
+                                selectedIndex = pagerState.currentPage,
+                                onClick = { scope.launch { pagerState.animateScrollToPage(index) } }
+                            ) {
+                                Text(
+                                    text = tabId.title,
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = if (pagerState.currentPage == index) FontWeight.Bold else FontWeight.Medium
+                                )
+                            }
+                        }
+                        TabAnimation(
+//                        modifier = Modifier.aspectRatio(1f),
+                            index = -1, // A non-matching index to keep it unselected
+                            title = "Edit",
+                            selectedIndex = pagerState.currentPage,
+                            onClick = { showReorderTabsSheet = true }
+                        ) {
+                            Icon(
+                                Icons.Default.Edit,
+                                contentDescription = "Reorder tabs",
+                                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f)
+                            )
+                        }
                     }
+                } else {
+                    Spacer(modifier = Modifier.height(12.dp))
                 }
 
                 Surface(
@@ -425,8 +482,8 @@ fun LibraryScreen(
                             onMainActionClick = {
                                 when (tabTitles.getOrNull(pagerState.currentPage)?.toLibraryTabIdOrNull()) {
                                     LibraryTabId.PLAYLISTS -> showCreatePlaylistDialog = true
-                                    LibraryTabId.LIKED -> playerViewModel.toggleShuffle()
-                                    else -> playerViewModel.toggleShuffle()
+                                    LibraryTabId.LIKED -> playerViewModel.shuffleFavoriteSongs()
+                                    else -> playerViewModel.shuffleAllSongs()
                                 }
                             },
                             iconRotation = iconRotation,
@@ -435,6 +492,7 @@ fun LibraryScreen(
                             isPlaylistTab = currentTabId == LibraryTabId.PLAYLISTS,
                             isFoldersTab = currentTabId == LibraryTabId.FOLDERS && (!playerUiState.isFoldersPlaylistView || playerUiState.currentFolder != null),
                             onGenerateWithAiClick = { playerViewModel.showAiPlaylistSheet() },
+                            onImportM3uClick = { m3uImportLauncher.launch("audio/x-mpegurl") },
                             //onFilterClick = { playerViewModel.toggleFolderFilter() },
                             currentFolder = playerUiState.currentFolder,
                             onFolderClick = { playerViewModel.navigateToFolder(it) },
@@ -660,7 +718,7 @@ fun LibraryScreen(
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                CircularProgressIndicator(modifier = Modifier.size(64.dp))
+                                ContainedLoadingIndicator(modifier = Modifier.size(64.dp))
                                 Spacer(modifier = Modifier.height(16.dp))
                                 Text(
                                     text = "Generating metadata with AI...",
@@ -677,7 +735,7 @@ fun LibraryScreen(
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                CircularProgressIndicator(modifier = Modifier.size(64.dp))
+                                ContainedLoadingIndicator(modifier = Modifier.size(64.dp))
                                 Spacer(modifier = Modifier.height(16.dp))
                                 Text(
                                     text = "Sincronizando biblioteca...",
@@ -806,7 +864,21 @@ fun LibraryScreen(
         }
     }
 
-
+    if (showTabSwitcherSheet) {
+        LibraryTabSwitcherSheet(
+            tabs = tabTitles,
+            currentIndex = pagerState.currentPage,
+            onTabSelected = { index ->
+                scope.launch { pagerState.animateScrollToPage(index) }
+                showTabSwitcherSheet = false
+            },
+            onEditClick = {
+                showTabSwitcherSheet = false
+                showReorderTabsSheet = true
+            },
+            onDismiss = { showTabSwitcherSheet = false }
+        )
+    }
 
     if (showReorderTabsSheet) {
         ReorderTabsSheet(
@@ -821,6 +893,353 @@ fun LibraryScreen(
         )
     }
 }
+
+@OptIn(ExperimentalAnimationApi::class)
+@Composable
+fun LibraryNavigationPill(
+    title: String,
+    isExpanded: Boolean,
+    iconRes: Int,
+    pageIndex: Int,
+    onClick: () -> Unit,
+    onArrowClick: () -> Unit
+) {
+    data class PillState(val pageIndex: Int, val iconRes: Int, val title: String)
+
+    val pillRadius = 26.dp
+    val innerRadius = 4.dp
+    // Radio para cuando está expandido/seleccionado (totalmente redondo)
+    val expandedRadius = 60.dp
+
+    // Animación Esquina Flecha (Interna):
+    // Depende de 'isExpanded':
+    // - true: Se vuelve redonda (expandedRadius/pillRadius) separándose visualmente.
+    // - false: Se mantiene recta (innerRadius) pareciendo unida al título.
+    val animatedArrowCorner by animateDpAsState(
+        targetValue = if (isExpanded) pillRadius else innerRadius,
+        label = "ArrowCornerAnimation"
+    )
+
+    val arrowRotation by animateFloatAsState(
+        targetValue = if (isExpanded) 180f else 0f,
+        label = "ArrowRotation"
+    )
+
+    // IntrinsicSize.Min en el Row + fillMaxHeight en los hijos asegura misma altura
+    Row(
+        modifier = Modifier
+            .padding(start = 4.dp)
+            .height(IntrinsicSize.Min),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Surface(
+            shape = RoundedCornerShape(
+                topStart = pillRadius,
+                bottomStart = pillRadius,
+                topEnd = innerRadius,
+                bottomEnd = innerRadius
+            ),
+            tonalElevation = 8.dp,
+            color = MaterialTheme.colorScheme.primaryContainer,
+            modifier = Modifier
+                .fillMaxHeight()
+                .clip(
+                    RoundedCornerShape(
+                        topStart = pillRadius,
+                        bottomStart = pillRadius,
+                        topEnd = innerRadius,
+                        bottomEnd = innerRadius
+                    )
+                )
+                .clickable(onClick = onClick)
+        ) {
+            Box(
+                modifier = Modifier.padding(start = 18.dp, end = 14.dp),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                AnimatedContent(
+                    targetState = PillState(pageIndex = pageIndex, iconRes = iconRes, title = title),
+                    transitionSpec = {
+                        val direction = targetState.pageIndex.compareTo(initialState.pageIndex).coerceIn(-1, 1)
+                        val slideIn = slideInHorizontally { fullWidth -> if (direction >= 0) fullWidth else -fullWidth } + fadeIn()
+                        val slideOut = slideOutHorizontally { fullWidth -> if (direction >= 0) -fullWidth else fullWidth } + fadeOut()
+                        slideIn.togetherWith(slideOut)
+                    },
+                    label = "LibraryPillTitle"
+                ) { targetState ->
+                    Row(
+                        modifier = Modifier.padding(vertical = 10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            painter = painterResource(id = targetState.iconRes),
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        Text(
+                            text = targetState.title,
+                            style = MaterialTheme.typography.titleLarge.copy(fontSize = 26.sp),
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                }
+            }
+        }
+
+        // --- PARTE 2: FLECHA (Cambia de forma según estado) ---
+        Surface(
+            shape = RoundedCornerShape(
+                topStart = animatedArrowCorner, // Anima entre 4.dp y 26.dp
+                bottomStart = animatedArrowCorner, // Anima entre 4.dp y 26.dp
+                topEnd = pillRadius,
+                bottomEnd = pillRadius
+            ),
+            tonalElevation = 8.dp,
+            color = MaterialTheme.colorScheme.primaryContainer,
+            modifier = Modifier
+                .fillMaxHeight()
+                .clip(
+                    RoundedCornerShape(
+                        topStart = animatedArrowCorner, // Anima entre 4.dp y 26.dp
+                        bottomStart = animatedArrowCorner, // Anima entre 4.dp y 26.dp
+                        topEnd = pillRadius,
+                        bottomEnd = pillRadius
+                    )
+                )
+                .clickable(
+                    indication = ripple(),
+                    interactionSource = remember { MutableInteractionSource() },
+                    onClick = onArrowClick
+                )
+        ) {
+            Box(
+                modifier = Modifier
+                    .padding(horizontal = 10.dp)
+                    .width(36.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    modifier = Modifier.rotate(arrowRotation),
+                    imageVector = Icons.Rounded.KeyboardArrowDown,
+                    contentDescription = "Expandir menú",
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
+        }
+    }
+}
+
+//@OptIn(ExperimentalAnimationApi::class)
+//@Composable
+//private fun LibraryNavigationPill(
+//    title: String,
+//    animationDirection: Int,
+//    onClick: () -> Unit
+//) {
+//    val pillShape = RoundedCornerShape(26.dp)
+//    Surface(
+//        shape = pillShape,
+//        tonalElevation = 8.dp,
+//        color = MaterialTheme.colorScheme.primaryContainer,
+//        modifier = Modifier
+//            .padding(start = 4.dp)
+//            .clip(pillShape)
+//            .clickable(onClick = onClick)
+//    ) {
+//        Row(
+//            modifier = Modifier
+//                .clip(pillShape)
+//                .padding(horizontal = 10.dp, vertical = 10.dp),
+//            horizontalArrangement = Arrangement.spacedBy(16.dp),
+//            verticalAlignment = Alignment.CenterVertically
+//        ) {
+//            AnimatedContent(
+//                modifier = Modifier.padding(start = 8.dp),
+//                targetState = title,
+//                transitionSpec = {
+//                    val direction = animationDirection.coerceIn(-1, 1)
+//                    val slideIn = slideInHorizontally { fullWidth -> if (direction >= 0) fullWidth else -fullWidth } + fadeIn()
+//                    val slideOut = slideOutHorizontally { fullWidth -> if (direction >= 0) -fullWidth else fullWidth } + fadeOut()
+//                    slideIn.togetherWith(slideOut)
+//                },
+//                label = "LibraryPillTitle"
+//            ) { targetTitle ->
+//                Text(
+//                    text = targetTitle,
+//                    style = MaterialTheme.typography.titleLarge.copy(fontSize = 26.sp),
+//                    fontWeight = FontWeight.SemiBold,
+//                    color = MaterialTheme.colorScheme.onSurface
+//                )
+//            }
+//
+//            Box(
+//               modifier = Modifier
+//                   .background(
+//                       color = MaterialTheme.colorScheme.onPrimaryContainer,
+//                       shape = CircleShape
+//                   )
+//            ) {
+//                Icon(
+//                    modifier = Modifier.padding(
+//                        4.dp
+//                    ),
+//                    imageVector = Icons.Rounded.KeyboardArrowDown,
+//                    contentDescription = null,
+//                    tint = MaterialTheme.colorScheme.primaryContainer
+//                )
+//            }
+//        }
+//    }
+//}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LibraryTabSwitcherSheet(
+    tabs: List<String>,
+    currentIndex: Int,
+    onTabSelected: (Int) -> Unit,
+    onEditClick: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surface,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 18.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = "Library tabs",
+                style = MaterialTheme.typography.headlineSmall,
+                fontFamily = GoogleSansRounded
+            )
+            Text(
+                text = "Jump directly to any tab or reorder them.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(minSize = 150.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                contentPadding = PaddingValues(bottom = 24.dp, top = 8.dp)
+            ) {
+                itemsIndexed(tabs, key = { index, tab -> "$tab-$index" }) { index, rawId ->
+                    val tabId = rawId.toLibraryTabIdOrNull() ?: return@itemsIndexed
+                    LibraryTabGridItem(
+                        tabId = tabId,
+                        isSelected = index == currentIndex,
+                        onClick = { onTabSelected(index) }
+                    )
+                }
+
+                item(
+                    span = { GridItemSpan(maxLineSpan) }
+                ) {
+                    Box(
+                       modifier = Modifier
+                           .fillMaxWidth()
+                           .heightIn(min = 46.dp, max = 60.dp)
+                    ) {
+                        FilledTonalButton(
+                            onClick = onEditClick,
+                            shape = CircleShape,
+                            colors = ButtonDefaults.filledTonalButtonColors(
+                                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onTertiaryContainer
+                            ),
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .align(Alignment.CenterEnd)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Edit,
+                                contentDescription = null
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text("Reorder tabs")
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LibraryTabGridItem(
+    tabId: LibraryTabId,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    val shape = RoundedCornerShape(20.dp)
+    val containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh
+    val iconContainer = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer
+    val textColor = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .clickable(onClick = onClick),
+        shape = shape,
+        color = containerColor,
+        tonalElevation = if (isSelected) 6.dp else 2.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 14.dp, horizontal = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(52.dp)
+                    .clip(CircleShape)
+                    .background(iconContainer.copy(alpha = 0.92f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    painter = painterResource(id = tabId.iconRes()),
+                    contentDescription = tabId.title,
+                    tint = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer
+                )
+            }
+
+            Text(
+                text = tabId.displayTitle(),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                color = textColor
+            )
+        }
+    }
+}
+
+private fun LibraryTabId.iconRes(): Int = when (this) {
+    LibraryTabId.SONGS -> R.drawable.rounded_music_note_24
+    LibraryTabId.ALBUMS -> R.drawable.rounded_album_24
+    LibraryTabId.ARTISTS -> R.drawable.rounded_artist_24
+    LibraryTabId.PLAYLISTS -> R.drawable.rounded_playlist_play_24
+    LibraryTabId.FOLDERS -> R.drawable.rounded_folder_24
+    LibraryTabId.LIKED -> R.drawable.rounded_favorite_24
+}
+
+private fun LibraryTabId.displayTitle(): String =
+    title.lowercase().replaceFirstChar { char ->
+        if (char.isLowerCase()) char.titlecase(Locale.getDefault()) else char.toString()
+    }
 
 @OptIn(ExperimentalAnimationApi::class)
 @Composable
@@ -844,8 +1263,8 @@ fun LibraryFoldersTab(
     val flattenedFolders = remember(folders, currentSortOption) {
         val flattened = flattenFolders(folders)
         when (currentSortOption) {
-            SortOption.FolderNameZA -> flattened.sortedByDescending { it.name }
-            else -> flattened.sortedBy { it.name }
+            SortOption.FolderNameZA -> flattened.sortedByDescending { it.name.lowercase() }
+            else -> flattened.sortedBy { it.name.lowercase() }
         }
     }
 
@@ -869,14 +1288,14 @@ fun LibraryFoldersTab(
                 showPlaylistCards -> flattenedFolders
                 activeFolder != null -> {
                     when (currentSortOption) {
-                        SortOption.FolderNameZA -> activeFolder.subFolders.sortedByDescending { it.name }
-                        else -> activeFolder.subFolders.sortedBy { it.name }
+                        SortOption.FolderNameZA -> activeFolder.subFolders.sortedByDescending { it.name.lowercase() }
+                        else -> activeFolder.subFolders.sortedBy { it.name.lowercase() }
                     }
                 }
                 else -> {
                      when (currentSortOption) {
-                        SortOption.FolderNameZA -> folders.sortedByDescending { it.name }
-                        else -> folders.sortedBy { it.name }
+                        SortOption.FolderNameZA -> folders.sortedByDescending { it.name.lowercase() }
+                        else -> folders.sortedBy { it.name.lowercase() }
                     }
                 }
             }
@@ -885,8 +1304,8 @@ fun LibraryFoldersTab(
         val songsToShow = remember(activeFolder, currentSortOption) {
             val songs = activeFolder?.songs ?: emptyList()
             when (currentSortOption) {
-                SortOption.FolderNameZA -> songs.sortedByDescending { it.title }
-                else -> songs.sortedBy { it.title }
+                SortOption.FolderNameZA -> songs.sortedByDescending { it.title.lowercase() }
+                else -> songs.sortedBy { it.title.lowercase() }
             }
         }.toImmutableList()
         val shouldShowLoading = isLoading && itemsToShow.isEmpty() && songsToShow.isEmpty() && isRoot
@@ -895,7 +1314,7 @@ fun LibraryFoldersTab(
             when {
                 shouldShowLoading -> {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
+                        ContainedLoadingIndicator()
                     }
                 }
 
@@ -1017,7 +1436,7 @@ fun FolderPlaylistItem(folder: MusicFolder, onClick: () -> Unit) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     folder.name,
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleMedium.copy(fontFamily = GoogleSansRounded),
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -1210,7 +1629,7 @@ fun LibrarySongsTab(
 
     if (isLoadingInitial && songs.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator() // O Shimmer para la lista completa
+            ContainedLoadingIndicator() // O Shimmer para la lista completa
         }
     } else {
         // Determine content based on loading state and data availability
@@ -1519,7 +1938,7 @@ fun EnhancedSongListItem(
                             text = song.title,
                             style = MaterialTheme.typography.bodyLarge,
                             gradientEdgeColor = containerColor,
-                            expansionFraction = 1f,
+                            expansionFractionProvider = { 1f },
                         )
 
                     } else {
@@ -1534,7 +1953,7 @@ fun EnhancedSongListItem(
                     }
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = song.artist,
+                        text = song.displayArtist,
                         style = MaterialTheme.typography.bodyMedium,
                         color = contentColor.copy(alpha = 0.7f),
                         maxLines = 1,
@@ -1619,7 +2038,7 @@ fun LibraryAlbumsTab(
     }
 
     if (isLoading && albums.isEmpty()) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { ContainedLoadingIndicator() }
     } else if (albums.isEmpty() && !isLoading) { // canLoadMore removed
         Box(modifier = Modifier
             .fillMaxSize()
@@ -1839,7 +2258,7 @@ fun LibraryArtistsTab(
     onRefresh: () -> Unit
 ) {
     val listState = rememberLazyListState()
-    if (isLoading && artists.isEmpty()) { Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() } }
+    if (isLoading && artists.isEmpty()) { Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { ContainedLoadingIndicator() } }
     else if (artists.isEmpty() && !isLoading) { /* ... No artists ... */ } // canLoadMore removed
     else {
         Box(
@@ -1906,15 +2325,32 @@ fun ArtistListItem(artist: Artist, onClick: () -> Unit) {
         )
     ) {
         Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                painter = painterResource(R.drawable.rounded_artist_24),
-                contentDescription = "Artista",
+            Box(
                 modifier = Modifier
                     .size(48.dp)
-                    .background(MaterialTheme.colorScheme.primaryContainer, CircleShape)
-                    .padding(8.dp),
-                tint = MaterialTheme.colorScheme.onPrimaryContainer
-            )
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primaryContainer),
+                contentAlignment = Alignment.Center
+            ) {
+                if (!artist.imageUrl.isNullOrEmpty()) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(artist.imageUrl)
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = artist.name,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Icon(
+                        painter = painterResource(R.drawable.rounded_artist_24),
+                        contentDescription = "Artista",
+                        modifier = Modifier.padding(8.dp),
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
+            }
             Spacer(modifier = Modifier.width(16.dp))
             Column {
                 Text(artist.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)

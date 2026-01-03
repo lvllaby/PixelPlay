@@ -61,6 +61,7 @@ import com.theveloper.pixelplay.presentation.components.snapping.ExperimentalSna
 import com.theveloper.pixelplay.presentation.components.snapping.SnapperLayoutInfo
 import com.theveloper.pixelplay.presentation.components.snapping.rememberLazyListSnapperLayoutInfo
 import com.theveloper.pixelplay.presentation.components.snapping.rememberSnapperFlingBehavior
+import com.theveloper.pixelplay.utils.LyricsUtils
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
@@ -68,14 +69,14 @@ import racra.compose.smooth_corner_rect_library.AbsoluteSmoothCornerShape
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun LyricsSheet(
     stablePlayerStateFlow: StateFlow<StablePlayerState>,
     playerUiStateFlow: StateFlow<PlayerUiState>,
     lyricsSearchUiState: LyricsSearchUiState,
     resetLyricsForCurrentSong: () -> Unit,
-    onSearchLyrics: () -> Unit,
+    onSearchLyrics: (Boolean) -> Unit,
     onPickResult: (LyricsSearchResult) -> Unit,
     onImportLyrics: () -> Unit,
     onDismissLyricsSearch: () -> Unit,
@@ -92,7 +93,7 @@ fun LyricsSheet(
     onSeekTo: (Long) -> Unit,
     onPlayPause: () -> Unit, // New parameter
     modifier: Modifier = Modifier,
-    highlightZoneFraction: Float = 0.22f,
+    highlightZoneFraction: Float = 0.08f, // Reduced from 0.22 for less padding
     highlightOffsetDp: Dp = 32.dp,
     autoscrollAnimationSpec: AnimationSpec<Float> = tween(durationMillis = 450, easing = FastOutSlowInEasing)
 ) {
@@ -107,23 +108,33 @@ fun LyricsSheet(
     val context = LocalContext.current
 
     var showFetchLyricsDialog by remember { mutableStateOf(false) }
+    // Flag to prevent dialog from showing briefly after reset
+    var wasResetTriggered by remember { mutableStateOf(false) }
 
     LaunchedEffect(currentSong, lyrics, isLoadingLyrics) {
         if (currentSong != null && lyrics == null && !isLoadingLyrics) {
-            showFetchLyricsDialog = true
+            // Only show dialog if reset was not just triggered
+            if (!wasResetTriggered) {
+                showFetchLyricsDialog = true
+            }
         } else if (lyrics != null || isLoadingLyrics) {
             showFetchLyricsDialog = false
+            wasResetTriggered = false // Reset the flag when lyrics are loaded
         }
     }
 
     if (showFetchLyricsDialog) {
         FetchLyricsDialog(
             uiState = lyricsSearchUiState,
+            currentSong = currentSong,
             onConfirm = onSearchLyrics,
             onPickResult = onPickResult,
             onDismiss = {
                 showFetchLyricsDialog = false
                 onDismissLyricsSearch()
+                if (lyrics == null && !isLoadingLyrics) {
+                    onBackClick()
+                }
             },
             onImport = onImportLyrics
         )
@@ -253,6 +264,7 @@ fun LyricsSheet(
                                         text = { Text(text = "Reset imported lyrics") },
                                         onClick = {
                                             expanded = false
+                                            wasResetTriggered = true
                                             resetLyricsForCurrentSong()
                                         }
                                     )
@@ -318,7 +330,7 @@ fun LyricsSheet(
             }
         },
         floatingActionButton = {
-            LargeFloatingActionButton(
+            LargeExtendedFloatingActionButton(
                 modifier = Modifier.padding(bottom = 64.dp),
                 onClick = onPlayPause,
                 shape = fabShape,
@@ -388,7 +400,7 @@ fun LyricsSheet(
                                             style = MaterialTheme.typography.titleMedium
                                         )
                                         Spacer(modifier = Modifier.height(8.dp))
-                                        LinearProgressIndicator(
+                                        LinearWavyProgressIndicator(
                                             trackColor = accentColor.copy(alpha = .5f),
                                             modifier = Modifier.width(100.dp)
                                         )
@@ -426,6 +438,7 @@ fun LyricsSheet(
                                             providerText = context.resources.getString(R.string.lyrics_provided_by),
                                             uri = context.resources.getString(R.string.lrclib_uri),
                                             textAlign = TextAlign.Center,
+                                            accentColor = accentColor,
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .padding(vertical = 16.dp)
@@ -572,8 +585,8 @@ fun SyncedLyricsList(
                 state = listState,
                 flingBehavior = flingBehavior,
                 contentPadding = PaddingValues(
-                    top = metrics.topPadding,
-                    bottom = metrics.bottomPadding
+                    top = 220.dp, // Slightly increased top padding
+                    bottom = 200.dp // Bottom padding for FAB and seek bar
                 )
             ) {
                 itemsIndexed(
@@ -730,7 +743,8 @@ fun PlainLyricsLine(
 
 private val LeadingTagRegex = Regex("^v\\d+:\\s*", RegexOption.IGNORE_CASE)
 
-internal fun sanitizeLyricLineText(raw: String): String = raw.replace(LeadingTagRegex, "").trimStart()
+internal fun sanitizeLyricLineText(raw: String): String =
+    LyricsUtils.stripLrcTimestamps(raw).replace(LeadingTagRegex, "").trimStart()
 
 internal fun sanitizeSyncedWords(words: List<SyncedWord>): List<SyncedWord> =
     words.mapIndexedNotNull { index, word ->

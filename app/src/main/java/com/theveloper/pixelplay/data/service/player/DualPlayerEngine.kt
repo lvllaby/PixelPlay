@@ -22,6 +22,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.asStateFlow // Added
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -45,6 +46,10 @@ class DualPlayerEngine @Inject constructor(
     private var playerB: ExoPlayer
 
     private val onPlayerSwappedListeners = mutableListOf<(Player) -> Unit>()
+    
+    // Active Audio Session ID Flow
+    private val _activeAudioSessionId = kotlinx.coroutines.flow.MutableStateFlow(0)
+    val activeAudioSessionId: kotlinx.coroutines.flow.StateFlow<Int> = _activeAudioSessionId.asStateFlow()
 
     // Audio Focus Management
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -104,6 +109,16 @@ class DualPlayerEngine @Inject constructor(
 
     fun isTransitionRunning(): Boolean = transitionRunning
 
+    /**
+     * Returns the audio session ID of the master player.
+     * Use this to attach audio effects like Equalizer.
+     */
+    /**
+     * Returns the audio session ID of the master player.
+     * Use this to attach audio effects like Equalizer.
+     */
+    fun getAudioSessionId(): Int = playerA.audioSessionId
+
     init {
         // We initialize BOTH players with NO internal focus handling.
         // We manage Audio Focus manually via AudioFocusManager.
@@ -112,6 +127,9 @@ class DualPlayerEngine @Inject constructor(
 
         // Attach listener to initial master
         playerA.addListener(masterPlayerListener)
+        
+        // Initialize active session ID
+        _activeAudioSessionId.value = playerA.audioSessionId
     }
 
     private fun requestAudioFocus() {
@@ -236,6 +254,8 @@ class DualPlayerEngine @Inject constructor(
 
         if (playerB.mediaItemCount == 0) {
             Timber.tag("TransitionDebug").w("Skipping overlap - next player not prepared (count=0)")
+            playerA.volume = 1f
+            setPauseAtEndOfMediaItems(false)
             return
         }
 
@@ -255,6 +275,8 @@ class DualPlayerEngine @Inject constructor(
 
         if (playerB.playbackState != Player.STATE_READY) {
             Timber.tag("TransitionDebug").w("Player B not ready for overlap. State=%d", playerB.playbackState)
+            playerA.volume = 1f
+            setPauseAtEndOfMediaItems(false)
             return
         }
 
@@ -298,27 +320,36 @@ class DualPlayerEngine @Inject constructor(
         val outgoingPlayer = playerA
         val incomingPlayer = playerB
 
+        val isSelfTransition = outgoingPlayer.currentMediaItem?.mediaId == incomingPlayer.currentMediaItem?.mediaId
+
         val currentOutgoingIndex = outgoingPlayer.currentMediaItemIndex
 
         // History: All songs up to and including the current one (Old Song)
         val historyToTransfer = mutableListOf<MediaItem>()
-        for (i in 0..currentOutgoingIndex) {
+        val historyEndIndex = if (isSelfTransition) currentOutgoingIndex else currentOutgoingIndex + 1
+        for (i in 0 until historyEndIndex) {
             historyToTransfer.add(outgoingPlayer.getMediaItemAt(i))
         }
 
         // Future: Songs AFTER the Next Song
         // We skip the immediate next one because incomingPlayer already has it.
         val futureToTransfer = mutableListOf<MediaItem>()
-        if (currentOutgoingIndex < outgoingPlayer.mediaItemCount - 2) {
-            for (i in (currentOutgoingIndex + 2) until outgoingPlayer.mediaItemCount) {
-                futureToTransfer.add(outgoingPlayer.getMediaItemAt(i))
-            }
+        val futureStartIndex = if (isSelfTransition) currentOutgoingIndex + 1 else currentOutgoingIndex + 2
+        for (i in futureStartIndex until outgoingPlayer.mediaItemCount) {
+            futureToTransfer.add(outgoingPlayer.getMediaItemAt(i))
         }
 
-        // 2. Move manual focus management to the new master player
+        // 2. Transfer playback settings (repeat mode, shuffle mode) before swap
+        val repeatModeToTransfer = outgoingPlayer.repeatMode
+        val shuffleModeToTransfer = outgoingPlayer.shuffleModeEnabled
+        incomingPlayer.repeatMode = repeatModeToTransfer
+        incomingPlayer.shuffleModeEnabled = shuffleModeToTransfer
+        Timber.tag("TransitionDebug").d("Transferred playback settings: repeatMode=%d, shuffle=%s", repeatModeToTransfer, shuffleModeToTransfer)
+
+        // 3. Move manual focus management to the new master player
         outgoingPlayer.removeListener(masterPlayerListener)
 
-        // 3. Swap References
+        // 4. Swap References
         playerA = incomingPlayer
         playerB = outgoingPlayer
 
@@ -342,6 +373,10 @@ class DualPlayerEngine @Inject constructor(
 
         // 6. Notify Service to update MediaSession
         onPlayerSwappedListeners.forEach { it(playerA) }
+        
+        // Update Session ID for Equalizer
+        _activeAudioSessionId.value = playerA.audioSessionId
+        
         Timber.tag("TransitionDebug").d("Players swapped EARLY. UI should now show next song.")
 
         // *** FADE LOOP ***

@@ -22,8 +22,11 @@ import com.theveloper.pixelplay.data.preferences.LaunchTab
 import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
 import com.theveloper.pixelplay.presentation.screens.AlbumDetailScreen
 import com.theveloper.pixelplay.presentation.screens.ArtistDetailScreen
+import com.theveloper.pixelplay.presentation.screens.ArtistSettingsScreen
 import com.theveloper.pixelplay.presentation.screens.DailyMixScreen
+import com.theveloper.pixelplay.presentation.screens.DelimiterConfigScreen
 import com.theveloper.pixelplay.presentation.screens.EditTransitionScreen
+import com.theveloper.pixelplay.presentation.screens.ExperimentalSettingsScreen
 import com.theveloper.pixelplay.presentation.screens.GenreDetailScreen
 import com.theveloper.pixelplay.presentation.screens.HomeScreen
 import com.theveloper.pixelplay.presentation.screens.LibraryScreen
@@ -34,6 +37,8 @@ import com.theveloper.pixelplay.presentation.screens.AboutScreen
 import com.theveloper.pixelplay.presentation.screens.SearchScreen
 import com.theveloper.pixelplay.presentation.screens.StatsScreen
 import com.theveloper.pixelplay.presentation.screens.SettingsScreen
+import com.theveloper.pixelplay.presentation.screens.SettingsCategoryScreen
+import com.theveloper.pixelplay.presentation.screens.EqualizerScreen
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
 import com.theveloper.pixelplay.presentation.viewmodel.PlaylistViewModel
 import kotlinx.coroutines.flow.first
@@ -45,7 +50,9 @@ fun AppNavigation(
     playerViewModel: PlayerViewModel,
     navController: NavHostController,
     paddingValues: PaddingValues,
-    userPreferencesRepository: UserPreferencesRepository
+    userPreferencesRepository: UserPreferencesRepository,
+    onSearchBarActiveChange: (Boolean) -> Unit,
+    onOpenSidebar: () -> Unit
 ) {
     var startDestination by remember { mutableStateOf<String?>(null) }
 
@@ -67,7 +74,12 @@ fun AppNavigation(
                 popEnterTransition = { enterTransition() },
                 popExitTransition = { exitTransition() },
             ) {
-                HomeScreen(navController = navController, paddingValuesParent = paddingValues, playerViewModel = playerViewModel)
+                HomeScreen(
+                    navController = navController, 
+                    paddingValuesParent = paddingValues, 
+                    playerViewModel = playerViewModel,
+                    onOpenSidebar = onOpenSidebar
+                )
             }
             composable(
                 Screen.Search.route,
@@ -76,7 +88,12 @@ fun AppNavigation(
                 popEnterTransition = { enterTransition() },
                 popExitTransition = { exitTransition() },
             ) {
-                SearchScreen(paddingValues = paddingValues, playerViewModel = playerViewModel, navController = navController)
+                SearchScreen(
+                    paddingValues = paddingValues,
+                    playerViewModel = playerViewModel,
+                    navController = navController,
+                    onSearchBarActiveChange = onSearchBarActiveChange
+                )
             }
             composable(
                 Screen.Library.route,
@@ -100,6 +117,37 @@ fun AppNavigation(
                     onNavigationIconClick = {
                         navController.popBackStack()
                     }
+                )
+            }
+            composable(
+                route = Screen.SettingsCategory.route,
+                arguments = listOf(navArgument("categoryId") { type = NavType.StringType }),
+                enterTransition = { enterTransition() },
+                exitTransition = { exitTransition() },
+                popEnterTransition = { enterTransition() },
+                popExitTransition = { exitTransition() },
+            ) { backStackEntry ->
+                val categoryId = backStackEntry.arguments?.getString("categoryId")
+                if (categoryId != null) {
+                    SettingsCategoryScreen(
+                        categoryId = categoryId,
+                        navController = navController,
+                        playerViewModel = playerViewModel,
+                        onBackClick = { navController.popBackStack() }
+                    )
+                }
+            }
+            composable(
+                Screen.Experimental.route,
+                enterTransition = { enterTransition() },
+                exitTransition = { exitTransition() },
+                popEnterTransition = { enterTransition() },
+                popExitTransition = { exitTransition() },
+            ) {
+                ExperimentalSettingsScreen(
+                    navController = navController,
+                    playerViewModel = playerViewModel,
+                    onNavigationIconClick = { navController.popBackStack() }
                 )
             }
             composable(
@@ -240,6 +288,36 @@ fun AppNavigation(
                 AboutScreen(
                     navController = navController,
                     onNavigationIconClick = { navController.popBackStack() }
+                )
+            }
+            composable(
+                Screen.ArtistSettings.route,
+                enterTransition = { enterTransition() },
+                exitTransition = { exitTransition() },
+                popEnterTransition = { enterTransition() },
+                popExitTransition = { exitTransition() },
+            ) {
+                ArtistSettingsScreen(navController = navController)
+            }
+            composable(
+                Screen.DelimiterConfig.route,
+                enterTransition = { enterTransition() },
+                exitTransition = { exitTransition() },
+                popEnterTransition = { enterTransition() },
+                popExitTransition = { exitTransition() },
+            ) {
+                DelimiterConfigScreen(navController = navController)
+            }
+            composable(
+                Screen.Equalizer.route,
+                enterTransition = { enterTransition() },
+                exitTransition = { exitTransition() },
+                popEnterTransition = { enterTransition() },
+                popExitTransition = { exitTransition() },
+            ) {
+                EqualizerScreen(
+                    navController = navController,
+                    playerViewModel = playerViewModel
                 )
             }
         }

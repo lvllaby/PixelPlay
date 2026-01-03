@@ -28,17 +28,18 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Constraints
 
 @Composable
 fun AutoScrollingTextOnDemand(
     text: String,
     style: TextStyle,
     gradientEdgeColor: Color,
-    expansionFraction: Float,
+    expansionFractionProvider: () -> Float,
     modifier: Modifier = Modifier
 ) {
     var overflow by remember { mutableStateOf(false) }
-    val canStart by remember { derivedStateOf { expansionFraction > 0.20f && overflow } }
+    val canStart by remember { derivedStateOf { expansionFractionProvider() > 0.99f && overflow } }
 
 
 // Usamos un Text "medidor" sólo la primera composición para detectar overflow.
@@ -148,7 +149,9 @@ fun AutoScrollingText(
         }
 
         val contentPlaceable = subcompose("content", content)[0].measure(constraints)
-        layout(contentPlaceable.width, contentPlaceable.height) {
+        val targetWidth = constraints.maxWidth.takeIf { it != Constraints.Infinity } ?: contentPlaceable.width
+
+        layout(targetWidth, contentPlaceable.height) {
             contentPlaceable.place(0, 0)
         }
     }

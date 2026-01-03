@@ -10,6 +10,7 @@ import androidx.activity.compose.PredictiveBackHandler
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDp
@@ -43,16 +44,19 @@ import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.ripple.rememberRipple
+import androidx.compose.material3.BasicAlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -88,12 +92,16 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
+import kotlin.math.roundToInt
 import androidx.compose.ui.util.lerp
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.zIndex
 import androidx.media3.common.util.UnstableApi
 import androidx.navigation.NavHostController
 import coil.size.Size
@@ -116,6 +124,7 @@ import kotlinx.coroutines.launch
 import racra.compose.smooth_corner_rect_library.AbsoluteSmoothCornerShape
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.abs
+import kotlin.math.max
 import kotlin.math.roundToInt
 import kotlin.math.sign
 
@@ -181,6 +190,7 @@ fun UnifiedPlayerSheet(
     val navBarCornerRadius by playerViewModel.navBarCornerRadius.collectAsState()
     val navBarStyle by playerViewModel.navBarStyle.collectAsState()
     val carouselStyle by playerViewModel.carouselStyle.collectAsState()
+    val fullPlayerLoadingTweaks by playerViewModel.fullPlayerLoadingTweaks.collectAsState()
     LaunchedEffect(stablePlayerState.currentSong?.id) {
         if (stablePlayerState.currentSong != null) {
             prewarmFullPlayer = true
@@ -595,6 +605,11 @@ fun UnifiedPlayerSheet(
     }
 
     var showQueueSheet by remember { mutableStateOf(false) }
+    val allowQueueSheetInteraction by remember(showPlayerContentArea, currentSheetContentState) {
+        derivedStateOf {
+            showPlayerContentArea && currentSheetContentState == PlayerSheetState.EXPANDED
+        }
+    }
     val queueSheetOffset = remember(screenHeightPx) { Animatable(screenHeightPx) }
     var queueSheetHeightPx by remember { mutableFloatStateOf(0f) }
     val queueHiddenOffsetPx by remember(currentBottomPadding, queueSheetHeightPx, density) {
@@ -608,6 +623,7 @@ fun UnifiedPlayerSheet(
     }
     var pendingSaveQueueOverlay by remember { mutableStateOf<SaveQueueOverlayData?>(null) }
     var showCastSheet by remember { mutableStateOf(false) }
+    var castSheetOpenFraction by remember { mutableFloatStateOf(0f) }
     var isDragging by remember { mutableStateOf(false) }
     var isDraggingPlayerArea by remember { mutableStateOf(false) }
     val velocityTracker = remember { VelocityTracker() }
@@ -641,23 +657,24 @@ fun UnifiedPlayerSheet(
     }
 
     fun animateQueueSheet(targetExpanded: Boolean) {
-        scope.launch { animateQueueSheetInternal(targetExpanded) }
+        if (!allowQueueSheetInteraction && targetExpanded) return
+        scope.launch { animateQueueSheetInternal(targetExpanded && allowQueueSheetInteraction) }
     }
 
     fun beginQueueDrag() {
-        if (queueHiddenOffsetPx == 0f) return
+        if (queueHiddenOffsetPx == 0f || !allowQueueSheetInteraction) return
         showQueueSheet = true
         scope.launch { queueSheetOffset.stop() }
     }
 
     fun dragQueueBy(dragAmount: Float) {
-        if (queueHiddenOffsetPx == 0f) return
+        if (queueHiddenOffsetPx == 0f || !allowQueueSheetInteraction) return
         val newOffset = (queueSheetOffset.value + dragAmount).coerceIn(0f, queueHiddenOffsetPx)
         scope.launch { queueSheetOffset.snapTo(newOffset) }
     }
 
     fun endQueueDrag(totalDrag: Float, velocity: Float) {
-        if (queueHiddenOffsetPx == 0f) return
+        if (queueHiddenOffsetPx == 0f || !allowQueueSheetInteraction) return
         val isFastUpward = velocity < -650f
         val isFastDownward = velocity > 650f
         val shouldExpand =
@@ -681,6 +698,14 @@ fun UnifiedPlayerSheet(
                     hasHitTopEdge = false
                 }
             }
+    }
+
+    LaunchedEffect(allowQueueSheetInteraction, queueHiddenOffsetPx) {
+        if (allowQueueSheetInteraction) return@LaunchedEffect
+        showQueueSheet = false
+        if (queueHiddenOffsetPx > 0f) {
+            queueSheetOffset.snapTo(queueHiddenOffsetPx)
+        }
     }
 
     PredictiveBackHandler(
@@ -734,6 +759,17 @@ fun UnifiedPlayerSheet(
                 1f
             )
         }
+    }
+    val effectiveQueueOpenFraction by remember(queueOpenFraction, showQueueSheet, queueHiddenOffsetPx) {
+        derivedStateOf {
+            if (queueHiddenOffsetPx == 0f && showQueueSheet) 1f else queueOpenFraction
+        }
+    }
+    val bottomSheetOpenFraction by remember(effectiveQueueOpenFraction, castSheetOpenFraction) {
+        derivedStateOf { max(effectiveQueueOpenFraction, castSheetOpenFraction) }
+    }
+    val queueScrimAlpha by remember(effectiveQueueOpenFraction) {
+        derivedStateOf { (effectiveQueueOpenFraction * 0.45f).coerceIn(0f, 0.45f) }
     }
 
     val updatedPendingSaveOverlay = rememberUpdatedState(pendingSaveQueueOverlay)
@@ -807,38 +843,12 @@ fun UnifiedPlayerSheet(
     val miniH = rememberUpdatedState(miniPlayerContentHeightPx)
     val dens = rememberUpdatedState(LocalDensity.current) // opcional; útil para thresholds
 
-    AnimatedVisibility(
-        visible = showPlayerContentArea && playerContentExpansionFraction.value > 0f && (!internalIsKeyboardVisible || pendingSaveQueueOverlay != null),
-        enter = fadeIn(animationSpec = tween(ANIMATION_DURATION_MS)),
-        exit = fadeOut(animationSpec = tween(ANIMATION_DURATION_MS))
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    color = if (isDarkTheme) Color.Black.copy(alpha = currentDimLayerAlpha) else Color.White.copy(
-                        alpha = currentDimLayerAlpha
-                    )
-                )
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) {
-                    if (currentSheetContentState == PlayerSheetState.EXPANDED) {
-                        playerViewModel.collapsePlayerSheet()
-                    }
-                }
-        )
-    }
-
     if (actuallyShowSheetContent) {
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .graphicsLayer {
-                    translationY = visualSheetTranslationY
-                }
-                .height(animatedTotalSheetHeightWithShadowDp),
+                .offset { IntOffset(0, visualSheetTranslationY.roundToInt()) }
+                .height(containerHeight),
             shadowElevation = 0.dp,
             color = Color.Transparent
         ) {
@@ -979,7 +989,12 @@ fun UnifiedPlayerSheet(
                                 }
                                 .shadow(
                                     elevation = playerAreaElevation,
-                                    shape = playerShadowShape,
+                                    shape = RoundedCornerShape(
+                                        topStart = overallSheetTopCornerRadius,
+                                        topEnd = overallSheetTopCornerRadius,
+                                        bottomStart = playerContentActualBottomRadius,
+                                        bottomEnd = playerContentActualBottomRadius
+                                    ),
                                     clip = false
                                 )
                                 .background(
@@ -1119,16 +1134,22 @@ fun UnifiedPlayerSheet(
                             if (showPlayerContentArea) {
                                 // stablePlayerState.currentSong is already available from the top-level collection
                                 stablePlayerState.currentSong?.let { currentSongNonNull ->
-                                    if (miniAlpha > 0.01f) {
+                                    // MiniPlayer
+                                    Crossfade(
+                                        targetState = albumColorScheme,
+                                        animationSpec = tween(durationMillis = 550, easing = FastOutSlowInEasing),
+                                        label = "miniPlayerColorScheme"
+                                    ) { scheme ->
                                         CompositionLocalProvider(
-                                            LocalMaterialTheme provides albumColorScheme
+                                            LocalMaterialTheme provides (scheme ?: MaterialTheme.colorScheme)
                                         ) {
                                             Box(
                                                 modifier = Modifier
                                                     .align(Alignment.TopCenter)
                                                     .graphicsLayer {
-                                                        alpha = miniAlpha//miniPlayerAlpha
+                                                        alpha = miniAlpha
                                                     }
+                                                    .zIndex(if (playerContentExpansionFraction.value < 0.5f) 1f else 0f)
                                             ) {
                                                 MiniPlayerContentInternal(
                                                     song = currentSongNonNull, // Use non-null version
@@ -1136,6 +1157,7 @@ fun UnifiedPlayerSheet(
                                                     isPlaying = stablePlayerState.isPlaying, // from top-level stablePlayerState
                                                     isCastConnecting = isCastConnecting,
                                                     onPlayPause = { playerViewModel.playPause() },
+                                                    onPrevious = { playerViewModel.previousSong() },
                                                     onNext = { playerViewModel.nextSong() },
                                                     modifier = Modifier.fillMaxSize()
                                                 )
@@ -1143,61 +1165,66 @@ fun UnifiedPlayerSheet(
                                         }
                                     }
 
-                                    if (fullPlayerContentAlpha > 0f) {
-                                        CompositionLocalProvider(
-                                            LocalMaterialTheme provides (albumColorScheme
-                                                ?: MaterialTheme.colorScheme)
-                                        ) {
-                                            val fullPlayerScale by remember(queueOpenFraction) {
-                                                derivedStateOf {
-                                                    lerp(
-                                                        1f,
-                                                        0.95f,
-                                                        queueOpenFraction
-                                                    )
-                                                }
-                                            }
-                                            Box(modifier = Modifier.graphicsLayer {
-                                                alpha = fullPlayerContentAlpha
-                                                translationY = fullPlayerTranslationY
-                                                scaleX = fullPlayerScale
-                                                scaleY = fullPlayerScale
-                                            }) {
-                                                FullPlayerContent(
-                                                    currentSong = currentSongNonNull,
-                                                    currentPlaybackQueue = currentPlaybackQueue,
-                                                    currentQueueSourceName = currentQueueSourceName,
-                                                    isShuffleEnabled = stablePlayerState.isShuffleEnabled,
-                                                    repeatMode = stablePlayerState.repeatMode,
-                                                    expansionFraction = playerContentExpansionFraction.value,
-                                                    currentSheetState = currentSheetContentState,
-                                                    carouselStyle = carouselStyle,
-                                                    playerViewModel = playerViewModel,
-                                                    // State Providers
-                                                    currentPositionProvider = { positionToDisplay },
-                                                    isPlayingProvider = { stablePlayerState.isPlaying },
-                                                    isFavoriteProvider = { isFavorite },
-                                                    // Event Handlers
-                                                    onPlayPause = playerViewModel::playPause,
-                                                    onSeek = playerViewModel::seekTo,
-                                                    onNext = playerViewModel::nextSong,
-                                                    onPrevious = playerViewModel::previousSong,
-                                                    onCollapse = playerViewModel::collapsePlayerSheet,
-                                                    onShowQueueClicked = { animateQueueSheet(true) },
-                                                    onQueueDragStart = { beginQueueDrag() },
-                                                    onQueueDrag = { dragQueueBy(it) },
-                                                    onQueueRelease = { totalDrag, velocity ->
-                                                        endQueueDrag(
-                                                            totalDrag,
-                                                            velocity
-                                                        )
-                                                    },
-                                                    onShowCastClicked = { showCastSheet = true },
-                                                    onShuffleToggle = playerViewModel::toggleShuffle,
-                                                    onRepeatToggle = playerViewModel::cycleRepeatMode,
-                                                    onFavoriteToggle = playerViewModel::toggleFavorite,
+                                    // FullPlayer
+                                    CompositionLocalProvider(
+                                        LocalMaterialTheme provides (albumColorScheme
+                                            ?: MaterialTheme.colorScheme)
+                                    ) {
+                                        val fullPlayerScale by remember(bottomSheetOpenFraction) {
+                                            derivedStateOf {
+                                                lerp(
+                                                    1f,
+                                                    0.95f,
+                                                    bottomSheetOpenFraction
                                                 )
                                             }
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .graphicsLayer {
+                                                    alpha = fullPlayerContentAlpha
+                                                    translationY = fullPlayerTranslationY
+                                                    scaleX = fullPlayerScale
+                                                    scaleY = fullPlayerScale
+                                                }
+                                                .zIndex(if (playerContentExpansionFraction.value >= 0.5f) 1f else 0f)
+                                                .offset { if (playerContentExpansionFraction.value <= 0.01f) IntOffset(0, 10000) else IntOffset.Zero }
+                                        ) {
+                                            FullPlayerContent(
+                                                currentSong = currentSongNonNull,
+                                                currentPlaybackQueue = currentPlaybackQueue,
+                                                currentQueueSourceName = currentQueueSourceName,
+                                                isShuffleEnabled = stablePlayerState.isShuffleEnabled,
+                                                repeatMode = stablePlayerState.repeatMode,
+                                                expansionFractionProvider = { playerContentExpansionFraction.value },
+                                                currentSheetState = currentSheetContentState,
+                                                carouselStyle = carouselStyle,
+                                                loadingTweaks = fullPlayerLoadingTweaks,
+                                                playerViewModel = playerViewModel,
+                                                // State Providers
+                                                currentPositionProvider = { positionToDisplay },
+                                                isPlayingProvider = { stablePlayerState.isPlaying },
+                                                isFavoriteProvider = { isFavorite },
+                                                // Event Handlers
+                                                onPlayPause = playerViewModel::playPause,
+                                                onSeek = playerViewModel::seekTo,
+                                                onNext = playerViewModel::nextSong,
+                                                onPrevious = playerViewModel::previousSong,
+                                                onCollapse = playerViewModel::collapsePlayerSheet,
+                                                onShowQueueClicked = { animateQueueSheet(true) },
+                                                onQueueDragStart = { beginQueueDrag() },
+                                                onQueueDrag = { dragQueueBy(it) },
+                                                onQueueRelease = { totalDrag, velocity ->
+                                                    endQueueDrag(
+                                                        totalDrag,
+                                                        velocity
+                                                    )
+                                                },
+                                                onShowCastClicked = { showCastSheet = true },
+                                                onShuffleToggle = playerViewModel::toggleShuffle,
+                                                onRepeatToggle = playerViewModel::cycleRepeatMode,
+                                                onFavoriteToggle = playerViewModel::toggleFavorite,
+                                            )
                                         }
                                     }
                                 }
@@ -1224,9 +1251,10 @@ fun UnifiedPlayerSheet(
                                     currentQueueSourceName = currentQueueSourceName,
                                     isShuffleEnabled = stablePlayerState.isShuffleEnabled,
                                     repeatMode = stablePlayerState.repeatMode,
-                                    expansionFraction = 1f,
+                                    expansionFractionProvider = { 1f },
                                     currentSheetState = PlayerSheetState.EXPANDED,
                                     carouselStyle = carouselStyle,
+                                    loadingTweaks = fullPlayerLoadingTweaks,
                                     playerViewModel = playerViewModel,
                                     currentPositionProvider = { positionToDisplay },
                                     isPlayingProvider = { stablePlayerState.isPlaying },
@@ -1272,11 +1300,29 @@ fun UnifiedPlayerSheet(
                     CompositionLocalProvider(
                         LocalMaterialTheme provides (albumColorScheme ?: MaterialTheme.colorScheme)
                     ) {
-                        Box {
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            AnimatedVisibility(
+                                modifier = Modifier
+                                    .matchParentSize()
+                                    .zIndex(0f),
+                                visible = queueScrimAlpha > 0f,
+                                enter = fadeIn(animationSpec = tween(ANIMATION_DURATION_MS)),
+                                exit = fadeOut(animationSpec = tween(ANIMATION_DURATION_MS))
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(
+                                            color = MaterialTheme.colorScheme.scrim.copy(alpha = queueScrimAlpha)
+                                        )
+                                )
+                            }
+
                             QueueBottomSheet(
                                 modifier = Modifier
                                     .align(Alignment.BottomCenter)
                                     .fillMaxWidth()
+                                    .zIndex(1f)
                                     .offset {
                                         IntOffset(
                                             x = 0,
@@ -1356,10 +1402,18 @@ fun UnifiedPlayerSheet(
             ) {
                 CastBottomSheet(
                     playerViewModel = playerViewModel,
-                    onDismiss = { showCastSheet = false }
+                    onDismiss = {
+                        castSheetOpenFraction = 0f
+                        showCastSheet = false
+                    },
+                    onExpansionChanged = { fraction -> castSheetOpenFraction = fraction }
                 )
             }
         }
+
+//        if (isCastConnecting) {
+//            CastConnectingDialog()
+//        }
 
         pendingSaveQueueOverlay?.let { overlay ->
             SaveQueueAsPlaylistSheet(
@@ -1377,6 +1431,45 @@ fun UnifiedPlayerSheet(
 }
 
 @Composable
+private fun CastConnectingDialog() {
+    BasicAlertDialog(
+        onDismissRequest = {},
+        properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)
+    ) {
+        Surface(
+            modifier = Modifier.padding(24.dp),
+            shape = RoundedCornerShape(20.dp),
+            tonalElevation = 8.dp,
+            color = MaterialTheme.colorScheme.surface
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(horizontal = 20.dp, vertical = 24.dp)
+                    .widthIn(min = 220.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                CircularProgressIndicator()
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "Mantén la app abierta",
+                        style = MaterialTheme.typography.titleMedium,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Estamos transfiriendo la reproducción. Puede tardar unos segundos en desconectarse o reconectarse.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun getNavigationBarHeight(): Dp {
     val insets = WindowInsets.safeDrawing.asPaddingValues()
     return insets.calculateBottomPadding()
@@ -1388,6 +1481,7 @@ private fun MiniPlayerContentInternal(
     isPlaying: Boolean,
     isCastConnecting: Boolean,
     onPlayPause: () -> Unit,
+    onPrevious: () -> Unit,
     cornerRadiusAlb: Dp,
     onNext: () -> Unit,
     modifier: Modifier = Modifier
@@ -1446,11 +1540,36 @@ private fun MiniPlayerContentInternal(
                 gradientEdgeColor = LocalMaterialTheme.current.primaryContainer
             )
             AutoScrollingText(
-                text = song.artist,
+                text = song.displayArtist,
                 style = artistStyle,
                 gradientEdgeColor = LocalMaterialTheme.current.primaryContainer
             )
         }
+        Spacer(modifier = Modifier.width(8.dp))
+
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(CircleShape)
+                .background(LocalMaterialTheme.current.primary.copy(alpha = 0.2f))
+                .clickable(
+                    interactionSource = interaction,
+                    indication = indication,
+                    enabled = !isCastConnecting
+                ) {
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onPrevious()
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                painter = painterResource(R.drawable.rounded_skip_previous_24),
+                contentDescription = "Anterior",
+                tint = LocalMaterialTheme.current.primary,
+                modifier = Modifier.size(22.dp)
+            )
+        }
+
         Spacer(modifier = Modifier.width(8.dp))
 
         Box(

@@ -1,12 +1,14 @@
 
 package com.theveloper.pixelplay.presentation.viewmodel
 
+import android.util.Log
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.theveloper.pixelplay.data.model.Artist
 import com.theveloper.pixelplay.data.model.Song
+import com.theveloper.pixelplay.data.repository.ArtistImageRepository
 import com.theveloper.pixelplay.data.repository.MusicRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -38,6 +40,7 @@ data class ArtistAlbumSection(
 @HiltViewModel
 class ArtistDetailViewModel @Inject constructor(
     private val musicRepository: MusicRepository,
+    private val artistImageRepository: ArtistImageRepository,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -60,12 +63,14 @@ class ArtistDetailViewModel @Inject constructor(
 
     private fun loadArtistData(id: Long) {
         viewModelScope.launch {
+            Log.d("ArtistDebug", "loadArtistData: id=$id")
             _uiState.update { it.copy(isLoading = true, error = null) }
             try {
                 val artistDetailsFlow = musicRepository.getArtistById(id)
                 val artistSongsFlow = musicRepository.getSongsForArtist(id)
 
                 combine(artistDetailsFlow, artistSongsFlow) { artist, songs ->
+                    Log.d("ArtistDebug", "loadArtistData: id=$id found=${artist != null} songs=${songs.size}")
                     if (artist != null) {
                         val albumSections = buildAlbumSections(songs)
                         val orderedSongs = albumSections.flatMap { it.songs }
@@ -87,6 +92,24 @@ class ArtistDetailViewModel @Inject constructor(
                     }
                     .collect { newState ->
                         _uiState.value = newState
+                        
+                        // Fetch artist image from Deezer if not already cached
+                        newState.artist?.let { artist ->
+                            if (artist.imageUrl.isNullOrEmpty()) {
+                                launch {
+                                    try {
+                                        val imageUrl = artistImageRepository.getArtistImageUrl(artist.name, artist.id)
+                                        if (!imageUrl.isNullOrEmpty()) {
+                                            _uiState.update { state ->
+                                                state.copy(artist = state.artist?.copy(imageUrl = imageUrl))
+                                            }
+                                        }
+                                    } catch (e: Exception) {
+                                        Log.w("ArtistDebug", "Failed to fetch artist image: ${e.message}")
+                                    }
+                                }
+                            }
+                        }
                     }
 
             } catch (e: Exception) {
